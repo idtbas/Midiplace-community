@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Midiplace</title>
+<meta name="description" content="A pinboard for MIDI files. Every pin is drawn from the notes in its file and colored by pitch.">
+<meta name="theme-color" content="#fbfbfc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230d0e12'/%3E%3Ccircle cx='8.6' cy='17' r='2.1' fill='%23fd736d'/%3E%3Ccircle cx='10.77' cy='11.77' r='2.1' fill='%23f3821d'/%3E%3Ccircle cx='16' cy='9.6' r='2.1' fill='%23cf9c00'/%3E%3Ccircle cx='21.23' cy='11.77' r='2.1' fill='%23a2af00'/%3E%3Ccircle cx='23.4' cy='17' r='2.1' fill='%2354bf5c'/%3E%3Crect x='13.6' y='23' width='4.8' height='2.2' rx='1.1' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300..800&family=Geist+Mono:wght@400..600&display=swap">
+<link rel="stylesheet" href="css/midiplace.css">
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar" id="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#" id="brand" aria-label="Midiplace, back to the top">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle class="bm-body" cx="16" cy="16" r="15"/>
+          <circle class="bm-pin" cx="8.6" cy="17" r="2.1" fill="#fd736d"/>
+          <circle class="bm-pin" cx="10.77" cy="11.77" r="2.1" fill="#f3821d"/>
+          <circle class="bm-pin" cx="16" cy="9.6" r="2.1" fill="#cf9c00"/>
+          <circle class="bm-pin" cx="21.23" cy="11.77" r="2.1" fill="#a2af00"/>
+          <circle class="bm-pin" cx="23.4" cy="17" r="2.1" fill="#54bf5c"/>
+          <rect class="bm-notch" x="13.6" y="23" width="4.8" height="2.2" rx="1.1"/>
+        </svg>
+        <span class="brand-word">Midiplace</span>
+      </a>
+
+      <div class="search" id="search">
+        <span class="search-icon" aria-hidden="true"></span>
+        <input id="search-input" type="search" placeholder="Search melodies, chords, keys, people" autocomplete="off" spellcheck="false" aria-label="Search Midiplace" aria-controls="search-panel">
+        <kbd class="search-kbd" aria-hidden="true">/</kbd>
+        <button class="search-clear" id="search-clear" type="button" aria-label="Clear search" hidden></button>
+        <div class="search-panel" id="search-panel" hidden>
+          <p class="search-panel-label">Try searching for</p>
+          <div class="search-suggest" id="search-suggest"></div>
+        </div>
+      </div>
+
+      <nav class="topbar-actions" aria-label="Board controls">
+        <button class="icon-btn" id="hover-toggle" type="button" aria-pressed="false" data-tip="Listen on hover: off"></button>
+        <button class="icon-btn" id="theme-toggle" type="button" data-tip="Dark appearance"></button>
+        <button class="icon-btn" id="saved-toggle" type="button" aria-pressed="false" data-tip="Saved pins">
+          <span class="badge" id="saved-count" hidden>0</span>
+        </button>
+        <button class="btn btn-primary btn-publish" id="publish-btn" type="button"><span class="btn-publish-label">Publish</span></button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">A pinboard for MIDI</p>
+        <h1 class="hero-title">
+          <span class="hero-line">Find your next</span>
+          <span class="rotator" id="rotator" aria-live="off"><span class="rotator-word is-current">melody.</span></span>
+        </h1>
+        <p class="hero-lede">Every pin is drawn from the notes in its file and colored by pitch. Press play to hear one, or drop a .mid file anywhere on this page to publish your own.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary btn-lg" id="hero-publish" type="button">Publish a MIDI file</button>
+          <button class="btn btn-quiet btn-lg" id="colors-btn" type="button" aria-expanded="false" aria-controls="colors-pop">How the colors work</button>
+        </div>
+        <p class="hero-stats" id="hero-stats"></p>
+      </div>
+      <div class="hero-wheel">
+        <div class="wheel" id="wheel" role="group" aria-label="Browse by key"></div>
+        <p class="wheel-caption">The circle of fifths. Pick a key to filter the board.</p>
+      </div>
+    </section>
+
+    <div class="filterbar" id="filterbar">
+      <div class="filterbar-inner">
+        <div class="chips-wrap">
+          <div class="chips" id="chips" role="tablist" aria-label="Categories"><span class="chip-indicator" id="chip-indicator" aria-hidden="true"></span></div>
+        </div>
+        <div class="seg seg-sort" id="sort" role="radiogroup" aria-label="Sort pins">
+          <span class="seg-indicator" aria-hidden="true"></span>
+          <button type="button" role="radio" data-value="trending" aria-checked="true">Trending</button>
+          <button type="button" role="radio" data-value="newest" aria-checked="false">Newest</button>
+        </div>
+      </div>
+      <div class="filter-status" id="filter-status" aria-live="polite"></div>
+    </div>
+
+    <section class="board" aria-label="Pins">
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty" hidden>
+        <div class="empty-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <h2 class="empty-title" id="empty-title">No pins match</h2>
+        <p class="empty-text" id="empty-text">Try another word, key or category.</p>
+        <button class="btn btn-secondary" id="empty-reset" type="button">Show every pin</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <p><strong>Midiplace</strong> is a community prototype. Pins you publish are kept in this browser.</p>
+      <p class="footer-legend" id="footer-legend" aria-label="Pitch colors around the circle of fifths"></p>
+    </div>
+  </footer>
+</div>
+
+<!-- Now playing -->
+<div class="island" id="island" data-state="hidden" role="region" aria-label="Now playing">
+  <button class="island-main" id="island-open" type="button">
+    <span class="island-art"><canvas id="island-canvas" width="80" height="80"></canvas></span>
+    <span class="island-text"><span class="island-title" id="island-title"></span><span class="island-sub" id="island-sub"></span></span>
+  </button>
+  <span class="island-meter" id="island-meter" aria-hidden="true"></span>
+  <button class="island-btn" id="island-toggle" type="button" aria-label="Pause"></button>
+  <button class="island-btn island-x" id="island-close" type="button" aria-label="Stop and close"></button>
+  <span class="island-progress" aria-hidden="true"><span id="island-progress"></span></span>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="tip" id="tip" role="tooltip" hidden></div>
+
+<!-- How the colors work -->
+<div class="popover" id="colors-pop" role="dialog" aria-label="How the colors work" hidden>
+  <h3 class="popover-title">Every pitch has a color</h3>
+  <p>Colors run around the circle of fifths, so notes that sound good together sit next to each other on the color wheel. A pin's background takes the color of its key.</p>
+  <div class="swatches" id="swatches"></div>
+  <p class="popover-foot">Higher octaves are drawn a little lighter. Drums stay neutral.</p>
+</div>
+
+<!-- Pin close-up -->
+<div class="detail" id="detail" hidden>
+  <div class="detail-backdrop" data-close></div>
+  <div class="detail-sheet" id="detail-sheet" role="dialog" aria-modal="true" aria-labelledby="d-title" tabindex="-1">
+    <div class="detail-stage" id="d-stage">
+      <button class="glass-btn d-close" type="button" data-close aria-label="Close"></button>
+      <button class="glass-btn d-nav d-prev" id="d-prev" type="button" aria-label="Previous pin"></button>
+      <button class="glass-btn d-nav d-next" id="d-next" type="button" aria-label="Next pin"></button>
+      <div class="d-art-wrap" id="d-art-wrap">
+        <div class="d-art" id="d-art"><canvas id="d-canvas"></canvas></div>
+      </div>
+      <div class="transport" id="transport">
+        <button class="t-play" id="t-play" type="button" aria-label="Play"></button>
+        <span class="t-time" id="t-time">0:00</span>
+        <div class="t-timeline" id="t-timeline" role="slider" tabindex="0" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <canvas id="t-canvas"></canvas>
+          <span class="t-hover" id="t-hover" hidden></span>
+        </div>
+        <span class="t-time t-dur" id="t-dur">0:00</span>
+        <button class="t-loop" id="t-loop" type="button" aria-pressed="false" data-tip="Loop"></button>
+      </div>
+    </div>
+    <div class="detail-info" id="d-info">
+      <div class="d-actions">
+        <div class="d-actions-left">
+          <button class="icon-btn" id="d-download" type="button" data-tip="Download .mid"></button>
+          <button class="icon-btn" id="d-link" type="button" data-tip="Copy link"></button>
+        </div>
+        <button class="btn btn-save" id="d-save" type="button">Save</button>
+      </div>
+      <h2 class="d-title" id="d-title"></h2>
+      <div class="d-by" id="d-by"></div>
+      <p class="d-desc" id="d-desc"></p>
+      <div class="d-tags" id="d-tags"></div>
+      <dl class="d-stats" id="d-stats"></dl>
+      <div class="d-block">
+        <div class="d-block-head"><h3>Pitch classes</h3><span class="d-block-note">Share of note time, around the circle of fifths</span></div>
+        <div class="d-chroma" id="d-chroma"></div>
+      </div>
+      <div class="d-block">
+        <div class="d-block-head"><h3>Sound</h3><span class="d-block-note" id="d-sound-note">Plays with the instruments in the file</span></div>
+        <div class="seg seg-sound" id="d-sound" role="radiogroup" aria-label="Sound">
+          <span class="seg-indicator" aria-hidden="true"></span>
+        </div>
+      </div>
+      <p class="d-meta" id="d-meta"></p>
+      <section class="d-more">
+        <h3>More like this</h3>
+        <div class="d-more-row" id="d-more"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- Publish -->
+<div class="sheet" id="publish" hidden>
+  <div class="sheet-backdrop" data-close></div>
+  <div class="sheet-panel" id="publish-panel" role="dialog" aria-modal="true" aria-labelledby="pub-title" tabindex="-1">
+    <header class="sheet-head">
+      <h2 id="pub-title">Publish a MIDI file</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close"></button>
+    </header>
+    <div class="sheet-body" id="publish-body">
+      <section class="pub-drop" id="pub-drop">
+        <label class="drop-area" id="drop-area" for="file-input">
+          <svg class="drop-border" aria-hidden="true"><rect x="1" y="1" rx="22" ry="22"/></svg>
+          <span class="din" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><b></b></span>
+          <span class="drop-title">Drop a MIDI file here</span>
+          <span class="drop-sub">or <u>choose one from your computer</u></span>
+          <span class="drop-foot">Standard MIDI files, .mid or .midi, up to 2 MB</span>
+        </label>
+        <p class="pub-error" id="pub-error" role="alert" hidden></p>
+        <div class="pub-or"><span>or</span></div>
+        <button class="btn btn-secondary btn-sample" id="pub-sample" type="button">Try a generated sample</button>
+      </section>
+
+      <section class="pub-edit" id="pub-edit" hidden>
+        <div class="pub-preview">
+          <div class="pub-preview-card" id="pub-preview"></div>
+          <p class="pub-preview-note">This is how your pin will look on the board.</p>
+        </div>
+        <form class="pub-form" id="pub-form" novalidate>
+          <div class="file-chip" id="file-chip"></div>
+          <dl class="readouts" id="readouts"></dl>
+          <div class="field">
+            <label for="pub-title-input">Title</label>
+            <input id="pub-title-input" name="title" type="text" maxlength="60" autocomplete="off" required>
+            <span class="field-count" id="pub-title-count">0/60</span>
+            <p class="field-error" id="pub-title-error" hidden>Add a title so people can find your file.</p>
+          </div>
+          <div class="field">
+            <label for="pub-desc-input">Description <span class="optional">Optional</span></label>
+            <textarea id="pub-desc-input" name="desc" rows="2" maxlength="280" placeholder="What is it, and how would you use it?"></textarea>
+          </div>
+          <div class="field">
+            <span class="field-label" id="pub-style-label">Artwork</span>
+            <div class="seg seg-style" id="pub-style" role="radiogroup" aria-labelledby="pub-style-label">
+              <span class="seg-indicator" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="field">
+            <span class="field-label" id="pub-tags-label">Categories <span class="optional">Up to 3</span></span>
+            <div class="tag-picker" id="pub-tags" role="group" aria-labelledby="pub-tags-label"></div>
+          </div>
+          <label class="switch-row" for="pub-download">
+            <span><span class="switch-title">Allow downloads</span><span class="switch-sub">People can save your original .mid file</span></span>
+            <input type="checkbox" id="pub-download" class="switch" checked>
+          </label>
+          <button class="btn btn-primary btn-lg btn-block" id="pub-submit" type="submit">Publish to Midiplace <kbd class="kbd-hint">⌘↵</kbd></button>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- Drag a file anywhere -->
+<div class="dropzone" id="dropzone" hidden>
+  <div class="dropzone-frame">
+    <svg class="dropzone-border" aria-hidden="true"><rect x="2" y="2" rx="36" ry="36"/></svg>
+    <span class="din din-lg" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><b></b></span>
+    <p class="dropzone-title">Drop to publish</p>
+    <p class="dropzone-sub">Release the file to open it in the publisher.</p>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".mid,.midi,.rmi,audio/midi,audio/x-midi" hidden>
+
+<script src="js/core.js"></script>
+<script src="js/midi.js"></script>
+<script src="js/compose.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/art.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
