@@ -24,7 +24,29 @@
       this.swing16 = o.swing16 || 0;
       this.humanize = o.humanize == null ? 0.008 : o.humanize;
       this.r = o.r;
+      this.tempo = [{ beat: 0, bpm }];
       this.notes = [];
+    }
+    /* A gradual slowdown, written as one tempo event per beat the way a DAW exports it. */
+    ritardando(fromBeat, toBeat, toBpm) {
+      const from = this.bpmAt(fromBeat);
+      for (let b = Math.ceil(fromBeat); b <= toBeat; b++) this.tempo.push({ beat: b, bpm: from + (toBpm - from) * ((b - fromBeat) / (toBeat - fromBeat)) });
+      this.tempo.sort((x, y) => x.beat - y.beat);
+    }
+    bpmAt(beat) {
+      let bpm = this.tempo[0].bpm;
+      for (const seg of this.tempo) if (seg.beat <= beat) bpm = seg.bpm;
+      return bpm;
+    }
+    sec(beat) {
+      if (this.tempo.length === 1) return beat * this.spb;
+      let t = 0;
+      for (let i = 0; i < this.tempo.length; i++) {
+        const a = this.tempo[i].beat, b = i + 1 < this.tempo.length ? this.tempo[i + 1].beat : Infinity;
+        if (beat <= a) break;
+        t += ((Math.min(beat, b) - a) * 60) / this.tempo[i].bpm;
+      }
+      return t;
     }
     add(beat, len, p, vel, ch) {
       while (p < 21) p += 12;
@@ -34,7 +56,8 @@
       if (this.swing && Math.abs(frac - 0.5) < 1e-6) b += this.swing;
       if (this.swing16 && (Math.abs(frac - 0.25) < 1e-6 || Math.abs(frac - 0.75) < 1e-6)) b += this.swing16;
       const jitter = this.r ? (this.r() - 0.5) * this.humanize : 0;
-      this.notes.push({ t: Math.max(0, b * this.spb + jitter), d: Math.max(0.045, len * this.spb), p, v: MP.clamp(vel, 0.06, 1), ch: ch || 0 });
+      const t = this.sec(b);
+      this.notes.push({ t: Math.max(0, t + jitter), d: Math.max(0.045, this.sec(b + len) - t), p, v: MP.clamp(vel, 0.06, 1), ch: ch || 0 });
     }
   }
 
@@ -380,6 +403,78 @@
     return { song: s, instruments: { 0: 'lead' } };
   };
 
+  /* A full arrangement: sections, eight parts, a pedalled keyboard and a ritardando into the last chord. */
+  G.arrangement = function (r, key, sub) {
+    const { tonic, mode } = key;
+    sub = sub || {};
+    const bpm = sub.bpm || between(r, 86, 98);
+    const s = new Song(bpm, { r, humanize: 0.008 });
+    const plan = sub.plan || [['intro', 4], ['verse', 8], ['chorus', 8], ['verse', 8], ['chorus', 8], ['outro', 4]];
+    const total = plan.reduce((a, x) => a + x[1], 0);
+    s.ritardando((total - 4) * 4, total * 4, Math.round(bpm * 0.8));
+    const PROG = mode === 'major'
+      ? { intro: [0, 3], verse: [0, 5, 3, 4], chorus: [3, 4, 0, 5], bridge: [5, 3, 1, 4], outro: [3, 0] }
+      : { intro: [0, 5], verse: [0, 5, 2, 6], chorus: [5, 6, 0, 4], bridge: [3, 4, 5, 6], outro: [5, 0] };
+    const glints = ladder(tonic, mode === 'minor' ? PENT_MIN : PENT_MAJ, 76, 93);
+    const sections = [];
+    let bar = 0;
+    for (const [kind, len] of plan) {
+      const prog = PROG[kind];
+      const per = kind === 'intro' || kind === 'outro' ? len / prog.length : 1;
+      const pcs = [];
+      for (let k = 0; k < len; k++, bar++) {
+        const deg = kind === 'outro' && k === len - 1 ? 0 : prog[Math.floor(k / per) % prog.length];
+        const off3 = chord(mode, deg, 3), off5 = chord(mode, deg, 5);
+        const at = bar * 4, root = rootIn(tonic + off3[0], 36);
+        const full = kind === 'chorus';
+        pcs.push(off3.map((o) => MP.pc(tonic + o)));
+        if (full) {
+          const v = voice(tonic, [off5[1], off5[2], off5[3]], 55, 4);
+          for (const [b, l] of [[0, 1.5], [1.5, 1], [2.5, 1.5]]) v.forEach((p, i) => s.add(at + b + i * 0.015, l, p, 0.5 + r() * 0.08, 0));
+        } else {
+          const v = voice(tonic, [off5[0], off5[1], off5[2], off5[3]], 48, 6);
+          [0, 1, 2, 3, 4, 5, 4, 3].forEach((vi, i) => s.add(at + i * 0.5, 4.5 - i * 0.5, v[vi], kind === 'outro' ? 0.36 : 0.4 + r() * 0.1, 0));
+        }
+        if (!(kind === 'intro' && k < 2)) voice(tonic, off3, 52, 3).forEach((p) => s.add(at + 0.05, 4.1, p, full ? 0.42 : 0.3, 1));
+        if (kind === 'verse' || kind === 'bridge') {
+          s.add(at, 1.8, root, 0.7, 2);
+          s.add(at + 2, 1.4, root, 0.6, 2);
+          s.add(at + 3.5, 0.5, root + 7, 0.55, 2);
+        } else if (full) for (let e = 0; e < 8; e++) s.add(at + e * 0.5, 0.42, e % 4 === 3 ? root + 12 : root, e % 2 ? 0.58 : 0.72, 2);
+        else if (kind === 'outro' && k === len - 1) s.add(at, 4, root, 0.6, 2);
+        if (kind === 'verse' || kind === 'chorus' || kind === 'bridge') {
+          if (k === 0) s.add(at, 0.3, DR.crash, 0.75, 9);
+          s.add(at, 0.25, DR.kick, 0.9, 9);
+          s.add(at + 2.5, 0.25, DR.kick, 0.75, 9);
+          if (full) s.add(at + 1.75, 0.25, DR.kick, 0.55, 9);
+          s.add(at + 1, 0.25, full ? DR.snare : DR.rim, full ? 0.75 : 0.5, 9);
+          s.add(at + 3, 0.25, full ? DR.snare : DR.rim, full ? 0.78 : 0.52, 9);
+          const step = full ? 0.25 : 0.5;
+          for (let e = 0; e < 4 / step; e++) s.add(at + e * step, 0.15, DR.hat, e % (full ? 4 : 2) === 0 ? 0.42 : 0.26, 9);
+          if (k === len - 1) [DR.tomHi, DR.tomMid, DR.tomLo, DR.snare].forEach((d, i) => s.add(at + 3 + i * 0.25, 0.2, d, 0.6 + i * 0.07, 9));
+        }
+        if (full) {
+          voice(tonic, off3, 64, 3).forEach((p) => s.add(at, 4.05, p, 0.3 + (k / len) * 0.16, 4));
+          const a = voice(tonic, off3, 72, 4);
+          for (let st = 0; st < 16; st++) s.add(at + st * 0.25, 0.2, a[[0, 1, 2, 3, 2, 1, 0, 1][st % 8]], st % 4 === 0 ? 0.36 : 0.24, 5);
+        }
+        if (kind === 'intro' || kind === 'outro') for (let g = 0; g < 2; g++) s.add(at + between(r, 0, 7) * 0.5, 2.5, pick(r, glints), 0.3 + r() * 0.15, 6);
+      }
+      sections.push({ kind, start: bar - len, len, pcs });
+    }
+    for (const sec of sections) {
+      if (sec.kind === 'intro' || sec.kind === 'outro') continue;
+      const hi = sec.kind === 'chorus';
+      melody(s, r, { bars: sec.len, start: sec.start * 4, chords: sec.pcs, lad: ladder(tonic, scaleOf(mode), hi ? 67 : 62, hi ? 88 : 81), density: hi ? 'medium' : 'sparse', ch: 3, vel: [0.58, 0.78], legato: 0.95 });
+    }
+    return {
+      song: s,
+      sections: sections.map((x) => ({ kind: x.kind, bar: x.start, bars: x.len })),
+      instruments: { 0: 'keys', 1: 'pad', 2: 'bass', 3: 'lead', 4: 'strings', 5: 'pluck', 6: 'bell', 9: 'drums' },
+      names: { 0: 'Rhodes', 1: 'Warm pad', 2: 'Bass', 3: 'Lead', 4: 'Strings', 5: 'Arpeggio', 6: 'Bells', 9: 'Drums' },
+    };
+  };
+
   /* ---------- The starter board ---------- */
   const AUTHORS = [
     { name: 'Noa Lindqvist', handle: 'noa.keys' },
@@ -404,6 +499,7 @@
     ballad: ['Piano', 'Melody'], lofi: ['Lo-fi', 'Chords'], ambient: ['Ambient'], synthwave: ['Synthwave'],
     chiptune: ['Chiptune', 'Melody'], drums: ['Drums'], jazz: ['Jazz', 'Chords'], classical: ['Classical', 'Piano'],
     cinematic: ['Cinematic'], bass: ['Bass'], musicbox: ['Melody'], neosoul: ['Chords', 'Piano'], melody: ['Melody'],
+    arrangement: ['Arrangements'],
   };
   const MODE_BIAS = { synthwave: 'minor', cinematic: 'minor', bass: 'minor', chiptune: 'major', jazz: 'major', musicbox: 'major' };
 
@@ -421,10 +517,14 @@
     musicbox: (k) => `A small waltz in 3/4 for music box, in ${k}.`,
     neosoul: (k) => `Ninth-chord stabs in ${k} with a slight strum. Bass sits on its own channel.`,
     melody: (k) => `One hook in ${k}, nothing else. Bring your own chords.`,
+    arrangement: (k, bpm, sub, m) => `${m.parts.length} parts across ${m.sections.length} sections in ${k}: a pedalled Rhodes, pad, bass, drums, lead, strings, arpeggio and bells. Opens at ${bpm} BPM and slows to ${Math.round(m.tempos[m.tempos.length - 1].bpm)} into the last chord.`,
   };
 
   // title, generator, artwork style, author, days since posting, key, variant
   const CATALOG = [
+    ['Afterhours', 'arrangement', 'roll', 3, 1, 'Em', { bpm: 92, featured: true }],
+    ['Glass Harbor Suite', 'arrangement', 'orbit', 2, 9, 'D', { bpm: 84, plan: [['intro', 4], ['verse', 8], ['chorus', 8], ['bridge', 4], ['chorus', 8], ['outro', 4]] }],
+    ['Northbound', 'arrangement', 'fall', 8, 16, 'Bm', { bpm: 102 }],
     ['Glasshouse', 'ballad', 'fall', 0, 2],
     ['Late Bus Home', 'lofi', 'roll', 1, 1],
     ['Tidal Hours', 'ambient', 'orbit', 2, 4],
@@ -476,40 +576,66 @@
     return { tonic: Math.max(0, tonic), mode: minor ? 'minor' : 'major' };
   }
 
-  function programsFor(instruments) {
-    const out = {};
-    for (const ch in instruments) if (+ch !== 9) out[ch] = MP.midi.PROGRAM_FOR[instruments[ch]] || 0;
-    return out;
-  }
+  const PART_NAMES = { keys: 'Keys', pad: 'Pad', pluck: 'Pluck', pizz: 'Pizzicato', bell: 'Bells', chip: 'Square lead', chipbass: 'Triangle bass', bass: 'Bass', strings: 'Strings', lead: 'Lead', organ: 'Organ', brass: 'Brass', drums: 'Drums' };
 
   function build(genre, r, key, sub) {
-    const { song, instruments } = G[genre](r, key, sub);
+    const out = G[genre](r, key, sub);
+    const song = out.song;
     song.notes.sort((a, b) => a.t - b.t || a.p - b.p);
-    return { notes: song.notes, bpm: song.bpm, timeSig: [song.meter, 4], instruments, programs: programsFor(instruments) };
+    const chans = Object.keys(out.instruments).map(Number).sort((a, b) => (a === 9) - (b === 9) || a - b);
+    let parts = chans.map((ch) => {
+      const inst = out.instruments[ch];
+      const program = ch === 9 ? -1 : MP.midi.PROGRAM_FOR[inst] || 0;
+      return { ch, inst, program, gm: ch === 9 ? 'Drum Kit' : MP.midi.GM[program], name: (out.names && out.names[ch]) || PART_NAMES[inst] || 'Part', count: 0 };
+    });
+    for (const n of song.notes) parts[chans.indexOf(n.ch)].count++;
+    parts = parts.filter((p) => p.count > 0);
+    for (const n of song.notes) n.part = parts.findIndex((p) => p.ch === n.ch);
+    const duration = song.notes.reduce((m, n) => Math.max(m, n.t + n.d), 0);
+    const tempos = [];
+    for (const seg of song.tempo) {
+      const t = song.sec(seg.beat), bpm = Math.round(seg.bpm * 10) / 10;
+      if (tempos.length && tempos[tempos.length - 1].t === t) tempos[tempos.length - 1].bpm = bpm;
+      else tempos.push({ t, bpm });
+    }
+    const bars = [];
+    for (let k = 0; bars.length < 4000; k++) {
+      const t = song.sec(k * song.meter);
+      if (t > duration + 0.01) break;
+      bars.push({ t, num: song.meter });
+    }
+    const programs = {};
+    for (const p of parts) if (p.ch !== 9) programs[p.ch] = p.program;
+    const markers = (out.sections || []).map((x) => ({ t: bars[x.bar] ? bars[x.bar].t : song.sec(x.bar * song.meter), text: x.kind.charAt(0).toUpperCase() + x.kind.slice(1) }));
+    return { notes: song.notes, bpm: song.bpm, timeSig: [song.meter, 4], parts, tempos, bars, programs, markers, sections: out.sections || null };
   }
 
   function catalog() {
     const now = Date.now();
-    return CATALOG.map(([title, genre, style, ai, days, keyStr, sub]) => {
+    const pins = CATALOG.map(([title, genre, style, ai, days, keyStr, sub]) => {
       const r = MP.rng(MP.hash(title));
       const key = keyStr ? parseKey(keyStr) : { tonic: Math.floor(r() * 12), mode: MODE_BIAS[genre] || (r() < 0.55 ? 'major' : 'minor') };
       if (sub === 'house') key.bpm = 124;
       const music = build(genre, r, key, sub);
-      const saves = Math.round(Math.pow(r(), 2.2) * 4200 + 36);
+      const saves = Math.round(Math.pow(r(), 2.2) * 4200 + 36) + (genre === 'arrangement' ? 900 : 0);
       return Object.assign(music, {
         id: MP.slug(title),
         title,
         genre,
         style,
+        featured: !!(sub && sub.featured),
         tags: TAGS[genre].slice(),
         author: AUTHORS[ai],
         key: { tonic: key.tonic, mode: genre === 'drums' ? 'major' : key.mode, none: genre === 'drums' },
-        desc: DESC[genre](MP.keyName(key), music.bpm, sub),
+        desc: DESC[genre](MP.keyName(key), music.bpm, sub, music),
         saves,
         plays: Math.round(saves * (3 + r() * 9)),
         createdAt: now - days * 86400000 - Math.floor(r() * 80000000),
       });
     });
+    // Catalogue numbers follow the order pins were published in.
+    pins.slice().sort((a, b) => a.createdAt - b.createdAt).forEach((p, i) => (p.no = i + 1));
+    return pins;
   }
 
   const ADJ = ['Quiet', 'Paper', 'Golden', 'Velvet', 'Hollow', 'Bright', 'Slow', 'Copper', 'Winter', 'Silver', 'Open', 'Low'];
@@ -518,13 +644,13 @@
   function sample() {
     const seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0;
     const r = MP.rng(seed);
-    const genre = pick(r, ['ballad', 'lofi', 'ambient', 'synthwave', 'chiptune', 'jazz', 'classical', 'cinematic', 'musicbox', 'neosoul']);
+    const genre = r() < 0.45 ? 'arrangement' : pick(r, ['ballad', 'lofi', 'ambient', 'synthwave', 'chiptune', 'jazz', 'classical', 'cinematic', 'musicbox', 'neosoul']);
     const key = { tonic: Math.floor(r() * 12), mode: MODE_BIAS[genre] || (r() < 0.5 ? 'major' : 'minor') };
     const music = build(genre, r, key);
     const name = pick(r, ADJ) + ' ' + pick(r, NOUN);
-    const bytes = MP.midi.write({ notes: music.notes, bpm: music.bpm, timeSig: music.timeSig, programs: music.programs, name });
+    const bytes = MP.midi.write({ notes: music.notes, tempos: music.tempos, timeSig: music.timeSig, parts: music.parts, name });
     return { bytes, fileName: MP.slug(name) + '.mid', genre };
   }
 
-  MP.compose = { catalog, sample, AUTHORS, TAGS };
+  MP.compose = { catalog, sample, AUTHORS, TAGS, PART_NAMES };
 })();

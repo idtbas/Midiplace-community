@@ -78,10 +78,9 @@
   MP.keyName = (k) => (k.mode === 'minor' ? MP.MINOR_NAMES : MP.MAJOR_NAMES)[k.tonic] + ' ' + k.mode;
   MP.keyShort = (k) => (k.mode === 'minor' ? MP.MINOR_NAMES[k.tonic] + 'm' : MP.MAJOR_NAMES[k.tonic]);
 
+  /* Midiplace is a night catalogue: dark unless someone explicitly asks for light. */
   MP.theme = function () {
-    const t = document.documentElement.getAttribute('data-theme');
-    if (t === 'dark' || t === 'light') return t;
-    return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   };
 
   /* Note color: same hue for a pitch class in every octave, a touch lighter as it rises. */
@@ -242,6 +241,13 @@
     file: '<path d="M13.5 3.5h-6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-10z"/><path d="M13.5 3.5v5h5"/>',
     arrowUp: '<path d="M12 19V5.5m0 0-5 5m5-5 5 5"/>',
     info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".6" fill="currentColor"/>',
+    arrowL: '<path d="M19 12H5.5m0 0 5.5-5.5M5.5 12l5.5 5.5"/>',
+    arrowR: '<path d="M5 12h13.5m0 0L13 6.5m5.5 5.5L13 17.5"/>',
+    arrowDown: '<path d="M12 5v13.5m0 0-5.5-5.5m5.5 5.5 5.5-5.5"/>',
+    share: '<path d="M12 3.5v11m0-11-4 4m4-4 4 4"/><path d="M6.5 11H5.5a1 1 0 0 0-1 1v7a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-7a1 1 0 0 0-1-1h-1"/>',
+    minus: '<path d="M5.5 12h13"/>',
+    command: '<path d="M9 6.5A2.5 2.5 0 1 0 6.5 9H9V6.5zm0 0V17.5m0-8.5h6m-6 8.5A2.5 2.5 0 1 1 6.5 15H9v2.5zm6-11V9h2.5A2.5 2.5 0 1 0 15 6.5zm0 0V17.5m0 0A2.5 2.5 0 1 0 17.5 15H15v2.5z"/>',
+    grid: '<rect x="4.5" y="4.5" width="6" height="6" rx="1.4"/><rect x="13.5" y="4.5" width="6" height="9" rx="1.4"/><rect x="4.5" y="13.5" width="6" height="6" rx="1.4"/><rect x="13.5" y="16.5" width="6" height="3" rx="1.2"/>',
     trash: '<path d="M5 7h14M10 7V5.5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1V7M7 7l.8 11.2a1.5 1.5 0 0 0 1.5 1.4h5.4a1.5 1.5 0 0 0 1.5-1.4L17 7"/>',
     sound: '<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
     din: '<circle cx="12" cy="12" r="8.5"/><circle cx="7" cy="12" r="1.05" fill="currentColor" stroke="none"/><circle cx="8.46" cy="8.46" r="1.05" fill="currentColor" stroke="none"/><circle cx="12" cy="7" r="1.05" fill="currentColor" stroke="none"/><circle cx="15.54" cy="8.46" r="1.05" fill="currentColor" stroke="none"/><circle cx="17" cy="12" r="1.05" fill="currentColor" stroke="none"/><path d="M10.6 18.2h2.8"/>',

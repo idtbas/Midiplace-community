@@ -240,6 +240,38 @@
       run(os.concat([lfo]), when, stop);
       return stop;
     },
+    organ(b, when, dur, p, v) {
+      const f = freq(p), end = when + dur;
+      // Three drawbars: fundamental, octave and twelfth, with a gentle key click.
+      const os = [[1, 0.5], [2, 0.32], [3, 0.18]].map(([m, g]) => {
+        const o = osc('sine', f * m, when), gg = gain(g);
+        o.connect(gg);
+        return [o, gg];
+      });
+      const amp = gain(0);
+      const stop = adsr(amp.gain, when, end, 0.1 * (0.5 + v * 0.5), 0.008, 0.2, 0.95, 0.06);
+      for (const [, gg] of os) gg.connect(amp);
+      route(b, amp, 0.32);
+      run(os.map((x) => x[0]), when, stop);
+      return stop;
+    },
+    brass(b, when, dur, p, v) {
+      const f = freq(p), end = when + dur;
+      const o = osc('sawtooth', f, when), o2 = osc('sawtooth', f, when);
+      o2.detune.value = 6;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.Q.value = 1.2;
+      lp.frequency.setValueAtTime(f * 1.2, when);
+      lp.frequency.linearRampToValueAtTime(Math.min(5000, f * (3 + v * 4)), when + 0.08);
+      lp.frequency.setTargetAtTime(f * 2.5, when + 0.08, 0.3);
+      const amp = gain(0);
+      const stop = adsr(amp.gain, when, end, 0.07 * (0.45 + v * 0.7), 0.05, 0.4, 0.8, 0.12);
+      o.connect(lp); o2.connect(lp); lp.connect(amp);
+      route(b, amp, 0.3);
+      run([o, o2], when, stop);
+      return stop;
+    },
     lead(b, when, dur, p, v) {
       const f = freq(p), end = when + dur;
       const o = osc('sine', f, when), o2 = osc('triangle', f, when);
@@ -331,10 +363,17 @@
     }
   }
 
-  A.instrumentFor = function (pin, ch) {
-    if (ch === 9) return 'drums';
+  A.instrumentFor = function (pin, n) {
+    if (n.ch === 9) return 'drums';
     if (pin.sound && pin.sound !== 'original') return pin.sound;
-    return (pin.instruments && pin.instruments[ch]) || 'keys';
+    const part = pin.parts && pin.parts[n.part];
+    return (part && part.inst !== 'drums' && part.inst) || 'keys';
+  };
+  /* Per-part mute and solo, kept on the pin so the close-up and the player agree. */
+  A.audible = function (pin, part) {
+    const mix = pin.mix;
+    if (!mix) return true;
+    return mix.solo.size ? mix.solo.has(part) : !mix.mute.has(part);
   };
   function sound(b, inst, when, dur, p, v) {
     if (inst === 'drums') return drum(b, when, p, v);
@@ -390,6 +429,10 @@
       if (source) this.source = source;
       this.halt(0.03);
       this.b = bus();
+      // Dense arrangements get headroom so sixteen parts don't push the compressor into pumping.
+      const norm = 1 / Math.sqrt(Math.max(1, (pin.poly || 3) / 3.5));
+      this.b.dry.gain.value = norm;
+      this.b.wet.gain.value = norm;
       this.startAt = ctx.currentTime + 0.05;
       const notes = pin.notes;
       let lo = 0, hi = notes.length;
@@ -414,8 +457,8 @@
         const n = notes[this.cursor];
         const when = this.startAt + (n.t - this.offset);
         if (when > horizon) break;
-        if (when >= now - 0.03 && (this.voices.length < 56 || n.ch === 9)) {
-          this.voices.push(sound(this.b, A.instrumentFor(pin, n.ch), Math.max(when, now), n.d, n.p, n.v));
+        if (when >= now - 0.03 && A.audible(pin, n.part) && (this.voices.length < 72 || n.ch === 9 || n.v > 0.75)) {
+          this.voices.push(sound(this.b, A.instrumentFor(pin, n), Math.max(when, now), n.d, n.p, n.v));
         }
         this.cursor++;
       }
