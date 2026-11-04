@@ -4,6 +4,7 @@ import { db, type LocalGame } from '@/persistence/db';
 import { requestPersistentStorage } from '@/pwa/register';
 import type { WorkerRequest, WorkerResponse } from './installWorker';
 import { forgetGameDirectory, listGameDirectories, readGameFile, removeGameDirectory } from './opfs';
+import { deleteSaves } from './saves';
 
 /**
  * Spiele, die direkt auf diesem Gerät installiert sind (Modus „lokal“, z. B. RenOS auf GitHub Pages).
@@ -252,6 +253,7 @@ export async function deleteLocalGame(id: string): Promise<void> {
   // Zuerst den Eintrag entfernen: Ab jetzt liefert RenOS keine Dateien dieses Spiels mehr aus.
   await db.games.delete(id);
   await db.covers.delete(id);
+  await deleteSaves(id);
   forgetGameDirectory(id);
   const cached = coverUrls.get(id);
   if (cached) URL.revokeObjectURL(cached.url);

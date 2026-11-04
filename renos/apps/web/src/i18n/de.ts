@@ -209,6 +209,8 @@ export const de = {
     removeGame: 'Entfernen …',
     removeConfirmTitle: (t: string) => `„${t}“ entfernen?`,
     removeConfirm: 'Das Spiel wird vom Server gelöscht. Spielstände im Browser bleiben erhalten, bis sie im Spiel oder über die Website-Daten entfernt werden.',
+    removeConfirmLocal:
+      'Das Spiel wird von diesem iPad gelöscht – mitsamt seinen Spielständen in RenOS. Brauchst du sie für eine neue Version, übernimm sie vorher in deren Details („Spielstände übernehmen von …“).',
     removed: (t: string) => `„${t}“ wurde entfernt.`,
     renamePrompt: 'Neuer Titel',
     installed: 'Installiert',
@@ -241,6 +243,13 @@ export const de = {
     savesTitle: 'Spielstände',
     savesText:
       'Ren’Py speichert Spielstände im Browser (IndexedDB des Spiele-Origins). Über das ☰-Menü oben links im Spiel lassen sich Spielstände exportieren und importieren – empfehlenswert als Sicherung.',
+    savesTextBuiltin:
+      'RenOS speichert die Spielstände jedes Spiels getrennt auf diesem iPad. Über das ☰-Menü oben links im Spiel lassen sich Spielstände zusätzlich exportieren und importieren – empfehlenswert als Sicherung.',
+    savesCount: (n: number, size: string) => (n === 0 ? 'Noch keine Spielstände' : `${n === 1 ? '1 Datei' : `${n} Dateien`} · ${size}`),
+    savesCopy: 'Spielstände übernehmen von …',
+    savesCopyHint: 'Zum Beispiel nach dem Installieren einer neuen Version. Vorhandene Spielstände dieses Spiels werden ersetzt.',
+    savesCopied: (n: number) => (n === 1 ? '1 Datei übernommen.' : `${n} Dateien übernommen.`),
+    savesNoSource: 'Kein anderes Spiel hat Spielstände.',
     coverUpdated: 'Cover aktualisiert.',
     renamed: 'Titel geändert.',
   },
@@ -269,7 +278,6 @@ export const de = {
     spaceFree: (s: string) => `verfügbar für RenOS: ${s}`,
     spaceMissing: 'nicht genug Speicher',
     keepOpen: 'RenOS während der Installation geöffnet lassen. Große Spiele brauchen einige Minuten.',
-    noHostHint: 'Spiele lassen sich schon installieren. Zum Spielen braucht RenOS noch die Adresse deines Spiele-Hosts.',
     resultTitle: 'Prüfergebnis',
     titleLabel: 'Titel in der Bibliothek',
     install: 'Installieren',
@@ -350,7 +358,7 @@ export const de = {
     errorUnreachableLocal:
       'Der Spiele-Host antwortet nicht. Beim ersten Start eines Spiels muss das iPad online sein; danach funktioniert der Spiele-Host auch offline.',
     errorUnsafe: 'Die Konfiguration ist unsicher: Spiele müssen auf einer eigenen Adresse (eigenem Origin) laufen.',
-    errorNoHost: 'Es ist noch kein Spiele-Host eingerichtet. Trage seine Adresse unter Settings → Spiele ein (Anleitung in der README).',
+    errorBuiltinTimeout: 'Das Spiel hat nicht reagiert. Versuche es erneut – hilft das nicht, ist der Web-Build möglicherweise unvollständig.',
     errorHost: 'Der Spiele-Host konnte nicht gestartet werden (z. B. kein Service Worker im privaten Modus):',
     openGameSettings: 'Spiele-Einstellungen öffnen',
     notFound: 'Dieses Spiel ist nicht (mehr) installiert.',

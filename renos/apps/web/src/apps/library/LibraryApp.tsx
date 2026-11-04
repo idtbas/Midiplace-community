@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, Gamepad2, ImagePlus, Info, LibraryBig, LogOut, Pencil, Play, Plus, RefreshCw, Search, ServerOff, Trash2, X } from 'lucide-react';
+import { ArchiveRestore, Clock, Gamepad2, ImagePlus, Info, LibraryBig, LogOut, Pencil, Play, Plus, RefreshCw, Search, ServerOff, Trash2, X } from 'lucide-react';
 import type { Game } from '@renos/shared';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
@@ -9,10 +9,10 @@ import { describeError, errorMessage } from '@/api/client';
 import { canReadLibrary, useServer } from '@/api/server';
 import { IS_LOCAL } from '@/config';
 import { games as gameBackend } from '@/games/backend';
-import { gameHostUrl } from '@/games/gameHost';
+import { copySaves, saveStats, type SaveStats } from '@/games/local/saves';
 import { launchGame, openApp } from '@/system/actions';
 import type { AppProps } from '@/system/apps';
-import { showContextMenu, type MenuEntry } from '@/system/contextMenu';
+import { showContextMenu, showMenuAt, type MenuEntry } from '@/system/contextMenu';
 import { confirmDialog, promptDialog } from '@/system/dialogs';
 import { notify } from '@/system/notifications';
 import { useSettings } from '@/system/settings';
@@ -35,8 +35,6 @@ export default function LibraryApp(_props: AppProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const hostSetting = useSettings((st) => st.gameHostUrl);
-  const hostMissing = IS_LOCAL && !gameHostUrl(hostSetting);
 
   useEffect(() => {
     if (readable && server.status !== 'offline') {
@@ -107,7 +105,7 @@ export default function LibraryApp(_props: AppProps) {
   const remove = async (game: Game) => {
     const ok = await confirmDialog({
       title: t.library.removeConfirmTitle(game.title),
-      message: t.library.removeConfirm,
+      message: IS_LOCAL ? t.library.removeConfirmLocal : t.library.removeConfirm,
       confirmLabel: t.library.removeGame.replace(' …', ''),
       destructive: true,
     });
@@ -339,14 +337,6 @@ export default function LibraryApp(_props: AppProps) {
         </div>
       </aside>
       <section className="flex min-w-0 flex-1 flex-col bg-surface-1">
-        {hostMissing ? (
-          <Notice kind="warning" className="m-3 mb-0 text-sm" >
-            {t.installer.noHostHint}{' '}
-            <button type="button" className="font-medium text-fg underline" onClick={() => openApp('settings', { section: 'games' })}>
-              {t.player.openGameSettings}
-            </button>
-          </Notice>
-        ) : null}
         <div className="min-h-0 flex-1">{body}</div>
       </section>
     </div>
@@ -398,9 +388,13 @@ function GameDetails({
           <dt className="text-fg-subtle">{t.library.runtime}</dt>
           <dd className="text-fg-muted">{game.runtime === 'legacy' ? t.library.runtimeLegacy : t.library.runtimeWasm}</dd>
         </dl>
-        <Notice className="text-sm">
-          <strong className="text-fg">{t.library.savesTitle}.</strong> {t.library.savesText}
-        </Notice>
+        {IS_LOCAL && !game.playUrl ? (
+          <BuiltinSaves game={game} />
+        ) : (
+          <Notice className="text-sm">
+            <strong className="text-fg">{t.library.savesTitle}.</strong> {t.library.savesText}
+          </Notice>
+        )}
         {isOwner ? (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" icon={ImagePlus} onClick={onCover}>
@@ -423,6 +417,70 @@ function GameDetails({
         )}
       </div>
     </aside>
+  );
+}
+
+/** Spielstände eines Spiels im eingebauten Spiele-Host (liegen bei RenOS, getrennt pro Spiel). */
+function BuiltinSaves({ game }: { game: Game }) {
+  const allGames = useServer((s) => s.games);
+  const [stats, setStats] = useState<SaveStats | null>(null);
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void saveStats(game.id).then((value) => {
+      if (!cancelled) setStats(value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [game.id, game.lastPlayedAt, version]);
+
+  const chooseSource = async (anchor: HTMLElement) => {
+    const others = allGames.filter((g) => g.id !== game.id);
+    const withSaves = (await Promise.all(others.map(async (g) => ({ game: g, stats: await saveStats(g.id) })))).filter((x) => x.stats.count > 0);
+    if (!withSaves.length) {
+      notify({ kind: 'info', title: t.library.savesNoSource, transient: true });
+      return;
+    }
+    showMenuAt(
+      anchor,
+      withSaves.map(({ game: source, stats: sourceStats }) => ({
+        id: source.id,
+        label: `${source.title} (${t.library.savesCount(sourceStats.count, formatBytes(sourceStats.bytes))})`,
+        run: () => void copyFrom(source),
+      })),
+    );
+  };
+
+  const copyFrom = async (source: Game) => {
+    const ok = await confirmDialog({
+      title: t.library.savesCopy.replace(' …', ''),
+      message: `„${source.title}“ → „${game.title}“. ${t.library.savesCopyHint}`,
+      confirmLabel: t.library.savesCopy.replace(' von …', ''),
+    });
+    if (!ok) return;
+    try {
+      const count = await copySaves(source.id, game.id);
+      setVersion((v) => v + 1);
+      notify({ kind: 'success', title: t.library.savesCopied(count), transient: true });
+    } catch (error) {
+      notify({ kind: 'error', title: errorMessage(error) });
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-line-soft bg-surface-2 p-3 text-sm" data-testid="game-saves">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-semibold text-fg">{t.library.savesTitle}</span>
+        <span className="tabular text-fg-muted" data-testid="game-saves-count">
+          {stats ? t.library.savesCount(stats.count, formatBytes(stats.bytes)) : '…'}
+        </span>
+      </div>
+      <p className="mt-1 text-fg-subtle">{t.library.savesTextBuiltin}</p>
+      <Button size="sm" className="mt-2" icon={ArchiveRestore} onClick={(e) => void chooseSource(e.currentTarget)} data-testid="game-saves-copy">
+        {t.library.savesCopy}
+      </Button>
+    </div>
   );
 }
 

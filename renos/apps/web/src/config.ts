@@ -3,7 +3,8 @@
  *
  * - `server`: Spiele liegen auf einem RenOS-Server (eigener Server, siehe README).
  * - `local`:  Kein Server nötig (z. B. GitHub Pages). Spiele werden direkt auf dem iPad installiert
- *             (OPFS von RenOS) und über einen statischen Spiele-Host auf einer zweiten Adresse ausgeführt.
+ *             (OPFS von RenOS) und im eingebauten Spiele-Host ausgeführt (iframe mit anonymem Origin);
+ *             optional über einen statischen Spiele-Host auf einer zweiten Adresse.
  */
 export type BackendMode = 'server' | 'local';
 

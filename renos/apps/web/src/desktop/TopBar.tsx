@@ -5,7 +5,6 @@ import { t, locale } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { useServer } from '@/api/server';
 import { IS_LOCAL } from '@/config';
-import { gameHostUrl } from '@/games/gameHost';
 import { openApp } from '@/system/actions';
 import { APP_META } from '@/system/appMeta';
 import { showMenuAt, type MenuEntry } from '@/system/contextMenu';
@@ -110,12 +109,8 @@ export function TopBar() {
     showMenuAt(e.currentTarget, items);
   };
 
-  const hostSetting = useSettings((st) => st.gameHostUrl);
-  const hostReady = Boolean(gameHostUrl(hostSetting));
   const serverLabel = IS_LOCAL
-    ? hostReady
-      ? 'Spiele lokal auf diesem iPad'
-      : 'Spiele lokal auf diesem iPad – Spiele-Host noch nicht eingerichtet'
+    ? 'Spiele lokal auf diesem iPad'
     :
     server.status === 'offline' ? t.topbar.serverOffline : server.authenticated || server.publicLibrary ? t.topbar.serverOnline : t.topbar.serverAuth;
 
@@ -160,7 +155,7 @@ export function TopBar() {
           data-status={server.status}
         >
           {IS_LOCAL ? (
-            <HardDrive size={15} strokeWidth={2} className={hostReady ? 'text-fg-muted' : 'text-warning'} />
+            <HardDrive size={15} strokeWidth={2} className="text-fg-muted" />
           ) : server.status === 'offline' ? (
             <ServerOff size={15} strokeWidth={2} className="text-warning" />
           ) : (

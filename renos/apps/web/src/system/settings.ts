@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { DEFAULT_GAME_HOST, asset } from '@/config';
+import { asset } from '@/config';
 import type { AppId } from './appIds';
 
 export const ACCENTS = {
@@ -49,7 +49,7 @@ export interface Settings {
   filesView: 'list' | 'grid';
   doNotDisturb: boolean;
   libraryCollapsedHelp: boolean;
-  /** Adresse des statischen Spiele-Hosts (nur lokaler Modus). */
+  /** Adresse eines externen Spiele-Hosts (nur lokaler Modus). Leer = eingebauter Spiele-Host. */
   gameHostUrl: string;
 }
 
@@ -79,7 +79,8 @@ export const DEFAULT_SETTINGS: Settings = {
   filesView: 'list',
   doNotDisturb: false,
   libraryCollapsedHelp: false,
-  gameHostUrl: DEFAULT_GAME_HOST,
+  // Leer = eingebauter Spiele-Host. Eine Adresse wählt einen externen Host (optional).
+  gameHostUrl: '',
 };
 
 interface SettingsStore extends Settings {
@@ -115,7 +116,7 @@ export const useSettings = create<SettingsStore>()(
         if (!(merged.accent in ACCENTS)) merged.accent = DEFAULT_SETTINGS.accent;
         if (!(merged.dockSize in DOCK_SIZES)) merged.dockSize = DEFAULT_SETTINGS.dockSize;
         if (!Array.isArray(merged.pinnedApps)) merged.pinnedApps = DEFAULT_SETTINGS.pinnedApps;
-        if (typeof merged.gameHostUrl !== 'string' || (!merged.gameHostUrl && DEFAULT_GAME_HOST)) merged.gameHostUrl = DEFAULT_GAME_HOST;
+        if (typeof merged.gameHostUrl !== 'string') merged.gameHostUrl = '';
         if (typeof merged.userName !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(merged.userName)) merged.userName = DEFAULT_SETTINGS.userName;
         return merged;
       },

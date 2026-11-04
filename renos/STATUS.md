@@ -23,7 +23,9 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 | Player | Getrennter Origin, Sandbox, Bridge, Lade-/Fehlerzustände, immersiver Modus, Steuerleiste, Ressourcenfreigabe | E2E inkl. echter Ren’Py-Laufzeit |
 | Ren’Py | Echter Web-Build (Ren’Py 8.5.3) läuft, Tastatur erreicht das Spiel, Spielstände überstehen Schließen + Neuladen | E2E `renpy.spec.ts` |
 | Backend | Auth (scrypt, Sessions, CSRF, Origin, Rate Limit), ZIP-Sicherheit, atomare Installation, Game-Host, Cover, Aufräumen | 52 Server-Tests |
-| Lokaler Modus | RenOS ohne Server (GitHub Pages): Installation auf dem Gerät (OPFS), Browser-ZIP-Leser mit ZIP64/CRC, statischer Spiele-Host mit Service Worker, Einstellungen für den Spiele-Host | Unit + E2E `e2e/local` inkl. echter Ren’Py-Laufzeit |
+| Lokaler Modus | RenOS ohne Server (GitHub Pages): Installation auf dem Gerät (OPFS), Browser-ZIP-Leser mit ZIP64/CRC | Unit + E2E `e2e/local` |
+| Eingebauter Spiele-Host | Jedes Spiel im sandboxed iframe mit anonymem Origin, ohne zweite Website: Dateien per MessagePort, IndexedDB-Nachbildung für Ren’Py-Spielstände, Spielstände pro Spiel bei RenOS (Anzeige, Übernahme in neue Version, Löschen mit dem Spiel), kein Netzwerk, offline | Unit + E2E inkl. echter Ren’Py-Laufzeit (Spielstände über Neuladen, offline) |
+| Externer Spiele-Host (optional) | statischer Host auf zweiter Adresse mit Service Worker, Einstellungen mit Prüfung | E2E inkl. echter Ren’Py-Laufzeit |
 | Große Spiele | 3,2-GB-Archiv lokal installiert (~30 s, +30 MB Speicher); Server-Limits 16 GB Upload / 32 GB entpackt | manuelle Messung in Chromium |
 | GitHub | CI-Workflow mit allen Tests (inkl. echter Ren’Py-Laufzeit, Server- und lokaler Modus) | CI auf GitHub grün (RenOS CI, Lauf #2) |
 | GitHub | Pages-Workflow (RenOS + Spiele-Host) | lokal gebaut; Veröffentlichung erst nach Merge in den Standard-Branch (Umgebungsschutz von `github-pages`), noch nicht auf GitHub gelaufen |
@@ -31,7 +33,8 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 
 ## Implementiert, aber nicht verifiziert
 
-- **Lokaler Modus in Safari:** Spiele-Host als fremdes iframe (partitionierter Service Worker/Speicher), Übergabe von OPFS-Dateien per `postMessage`, `createSyncAccessHandle()` im Worker, BYOB-Reader auf Dateien (sonst automatischer Rückfall), tatsächlich gewährter Speicher für Multi-GB-Spiele.
+- **Lokaler Modus in Safari:** eingebauter Spiele-Host (sandboxed `srcdoc`-iframe, `blob:`-Skripte/Bilder, WebAssembly aus nachgebildeten Antworten, OPFS-Dateien per `MessagePort`), externer Host als fremdes iframe (partitionierter Service Worker/Speicher), `createSyncAccessHandle()` im Worker, BYOB-Reader auf Dateien (sonst automatischer Rückfall), tatsächlich gewährter Speicher für Multi-GB-Spiele.
+- **Videos und Texteingaben im eingebauten Host:** Video-Adressen werden auf `blob:` umgelenkt, `renpy.input` nutzt ein Formular (`allow-forms`); beides ist implementiert, aber das Testspiel enthält kein Video und keine Texteingabe.
 - **Alles auf echter iPad-Hardware** (Magic Keyboard, Trackpad, Touch, Safe-Area, Stage Manager, Home-Bildschirm-Installation). Prüfliste: [TESTING.md](TESTING.md).
 - **Safari/WebKit-Verhalten** generell (alle automatisierten Tests laufen in Chromium).
 - **Docker-Image und Compose/Caddy-Setup** – das Image konnte in der Entwicklungsumgebung nicht gebaut werden (kein Docker-Daemon).
@@ -48,12 +51,13 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 - Das virtuelle Dateisystem ist **nicht** das iPadOS-Dateisystem. Austausch nur per Import (Dateiauswahl, Drag & Drop) und Export (Download).
 - iPadOS kann Websitedaten (Notizen, Dateien, Spielstände) unter Speicherdruck entfernen, wenn kein dauerhafter Speicher gewährt wurde → Datensicherung in Settings, Spielstand-Export im Ren’Py-Menü.
 - Installierte Web-App und Safari haben **getrennte** Speicher.
-- Alle Spiele teilen sich **einen** Spiele-Origin: von RenOS isoliert, untereinander aber nicht (Spielstände trennt Ren’Py über `config.save_directory`).
-- Für Ren’Py sind auf dem Spiele-Origin `unsafe-inline`, `unsafe-eval` und `wasm-unsafe-eval` erlaubt (siehe ARCHITECTURE.md).
+- Server-Modus und externer Host: Alle Spiele teilen sich **einen** Spiele-Origin – von RenOS isoliert, untereinander aber nicht (Spielstände trennt Ren’Py über `config.save_directory`). Im eingebauten Host ist jedes Spiel getrennt.
+- Eingebauter Host: Spiele haben **keinen Netzwerkzugriff** (CSP). Spiele, die selbst Server kontaktieren, brauchen den externen Host. Spielstände sind nicht Teil der RenOS-Datensicherung (Sicherung über „Export Saves“ im Spiel).
+- Für Ren’Py sind im Spieldokument (Spiele-Origin bzw. eingebauter Host) `unsafe-inline`, `unsafe-eval` und `wasm-unsafe-eval` erlaubt – nie für RenOS selbst (siehe ARCHITECTURE.md).
 - Eine **automatische Konvertierung** von Ren’Py-Projektquellen oder Desktop-Builds in Web-Builds ist nicht enthalten; solche Archive werden erkannt und erklärt.
 - Server-Modus: Große Spiele sind **nicht offlinefähig**; der RenOS-Service-Worker speichert keine Spieldateien. Im **lokalen Modus** liegen Spiele auf dem Gerät und sind nach dem ersten Start offline spielbar.
 - Ren’Py lädt die `game.zip` eines Web-Builds vollständig in den Arbeitsspeicher. Sehr große Spiele funktionieren nur, wenn Bilder/Audio als einzelne Dateien nachgeladen werden (Standard beim Ren’Py-Web-Build mit „Progressive Downloading“).
-- Lokaler Modus: Der Spiele-Host braucht eine zweite Adresse (z. B. Fork in eine kostenlose GitHub-Organisation). Ohne sie lassen sich Spiele installieren, aber nicht starten.
+- Lokaler Modus: Veröffentlichung auf GitHub Pages nur vom Standard-Branch (Umgebungsschutz von `github-pages`).
 
 ## Bekannte Fehler / offene Punkte
 

@@ -9,7 +9,7 @@ RenOS ersetzt iPadOS nicht. Es läuft als installierte Web-App („Zum Home-Bild
 | Desktop | Wallpaper, Systemleiste (Uhr, Netzwerk-/Serverstatus, Benachrichtigungen, Schnellaktionen), Dock, Launcher mit Suche, Kontextmenüs, Dialoge, Toasts |
 | Window Manager | Verschieben, Größe ändern, Minimieren, Maximieren, Einrasten links/rechts, Fokus und Stapelung, gespeicherte Positionen, Anpassung an Multitasking-Größen |
 | Apps | **Files** (virtuelles Dateisystem in IndexedDB), **Library**, **Installer**, **Settings**, **Terminal** (sichere interne Befehle), **Notes**, **Player** |
-| Spiele | Upload von Ren’Py-Web-Builds (ZIP), Sicherheitsprüfung, atomare Installation, Auslieferung über einen **getrennten Spiele-Origin**, Player mit immersivem Modus |
+| Spiele | Ren’Py-Web-Builds (ZIP) installieren, Sicherheitsprüfung, atomare Installation, Ausführung **abgeschottet von RenOS** (eingebauter Spiele-Host oder eigener Spiele-Origin), Spielstände pro Spiel, Player mit immersivem Modus |
 | PWA | Manifest, Apple-Touch-Icons, Service Worker (Offline-Start der Oberfläche), Installationsseite in Safari, Einrichtungsassistent |
 
 Weitere Dokumente: [ARCHITECTURE.md](ARCHITECTURE.md) · [TESTING.md](TESTING.md) · [STATUS.md](STATUS.md)
@@ -37,7 +37,7 @@ GitHub Pages veröffentlicht nur vom **Standard-Branch** (`claude/midiplace-prot
 Danach baut `.github/workflows/pages.yml` bei jedem Push auf den Standard-Branch automatisch:
 
 - `https://<dein-name>.github.io/Midiplace-community/renos/` – RenOS
-- `https://<dein-name>.github.io/Midiplace-community/renos-games/` – Spiele-Host (wird nur im Fork genutzt, siehe Schritt 3)
+- `https://<dein-name>.github.io/Midiplace-community/renos-games/` – optionaler externer Spiele-Host (nur im Fork sinnvoll, siehe unten)
 
 Midiplace bleibt unverändert unter `https://<dein-name>.github.io/Midiplace-community/`. Prüfen: github.com → Repository → **Actions** → „Deploy to GitHub Pages“ muss grün sein.
 
@@ -47,26 +47,38 @@ Midiplace bleibt unverändert unter `https://<dein-name>.github.io/Midiplace-com
 2. **Teilen** → **Zum Home-Bildschirm** → „Als Web-App öffnen“ eingeschaltet lassen → **Hinzufügen**.
 3. RenOS über das neue Symbol starten. (Nur so bekommt RenOS den großen Speicher einer installierten Web-App.)
 
-### 3. Spiele-Host einrichten (einmalig, kostenlos)
+### 3. Spiele installieren und spielen
 
-Spiele enthalten fremdes JavaScript. Damit sie nie mit den Rechten von RenOS laufen, braucht der Spiele-Host eine **zweite Adresse**. Auf GitHub bekommt man die mit einer kostenlosen Organisation:
+1. Ren’Py-Web-Build (`…-web.zip`) in die **Dateien-App** des iPads legen (z. B. iCloud Drive, Download in Safari).
+2. RenOS → **Installer** → **ZIP-Datei auswählen**. Das Archiv wird auf dem iPad geprüft und entpackt – **nichts wird hochgeladen**, es gibt **kein Größenlimit** außer dem freien Speicher.
+3. Die Library zeigt das Spiel; **Spielen** startet es im **eingebauten Spiele-Host**. Es gibt nichts einzurichten.
+
+### Der eingebaute Spiele-Host
+
+Spiele enthalten fremdes JavaScript. Damit sie nie mit den Rechten von RenOS laufen, startet RenOS jedes Spiel in einem abgeschotteten Rahmen (iframe mit `sandbox`, ohne `allow-same-origin`). Der Browser gibt ihm einen **eigenen, anonymen Origin**: Das Spiel kann weder RenOS noch andere Spiele lesen oder verändern – dieselbe Trennung wie bei einer zweiten Website, nur ohne zweite Website.
+
+- **Dateien:** RenOS reicht dem Spiel seine Dateien aus dem iPad-Speicher – nur die des laufenden Spiels und nur lesend.
+- **Spielstände:** RenOS speichert sie **getrennt pro Spiel** (Library → Spiel → „Spielstände“). Nach dem Installieren einer neuen Version: **„Spielstände übernehmen von …“**. Beim Entfernen eines Spiels werden seine Spielstände mit gelöscht. Zusätzlich sichern: ☰-Menü im Spiel → „Export Saves“.
+- **Offline:** Installierte Spiele starten ohne Internet.
+- **Kein Netzwerk:** Spiele können keine fremden Server kontaktieren (Content-Security-Policy). Ren’Py-Spiele brauchen das normalerweise nicht.
+
+<details>
+<summary>Optional: externer Spiele-Host auf einer zweiten Adresse</summary>
+
+Nur nötig, falls ein Spiel im eingebauten Host nicht läuft (z. B. weil es selbst Netzwerkzugriffe braucht). Auf GitHub bekommt man eine zweite Adresse mit einer kostenlosen Organisation:
 
 1. github.com → Profilbild → **Your organizations** → **New organization** → **Free**. Name z. B. `<dein-name>-games`.
 2. Dieses Repository öffnen → **Fork** → als Owner die neue Organisation wählen → **Create fork**. (Erst nach Schritt 1 forken: Der Fork übernimmt nur den Standard-Branch.)
 3. Im Fork: **Settings → Pages → Source: GitHub Actions**.
 4. Im Fork: **Actions** → Workflows aktivieren → „Deploy to GitHub Pages“ → **Run workflow**.
 5. Die Adresse lautet dann `https://<dein-name>-games.github.io/Midiplace-community/renos-games/`.
-6. In RenOS: **Settings → Spiele → Spiele-Host** eintragen → **Prüfen & speichern**.
+6. In RenOS: **Settings → Spiele → Externer Spiele-Host** eintragen → **Prüfen & verwenden**. Zurück zum eingebauten Host: dort **Verwenden** antippen.
 
-Optional: Im Original-Repository unter **Settings → Secrets and variables → Actions → Variables** die Variable `RENOS_GAME_HOST_URL` mit dieser Adresse anlegen – dann ist sie in neuen Installationen schon vorbelegt. Updates des Spiele-Hosts: im Fork **Sync fork** antippen.
+Beim externen Host liegen die Spielstände im Speicher der zweiten Adresse, und alle Spiele teilen sich diesen Origin. Updates: im Fork **Sync fork** antippen. Die Repository-Variable `RENOS_GAME_HOST_URL` füllt das Eingabefeld vor.
 
-### 4. Spiele installieren
+</details>
 
-1. Ren’Py-Web-Build (`…-web.zip`) in die **Dateien-App** des iPads legen (z. B. iCloud Drive, Download in Safari).
-2. RenOS → **Installer** → **ZIP-Datei auswählen**. Das Archiv wird auf dem iPad geprüft und entpackt – **nichts wird hochgeladen**, es gibt **kein Größenlimit** außer dem freien Speicher.
-3. Die Library zeigt das Spiel; **Spielen** startet es isoliert über den Spiele-Host.
-
-**Speicher:** Eine installierte Web-App darf unter iPadOS bis zu etwa **60 % des Gerätespeichers** nutzen. RenOS legt die Spiele deshalb im eigenen Speicher ab (nicht im Speicher des Spiele-iframes, der auf 10 % davon begrenzt wäre) und fordert dauerhaften Speicher an, damit iPadOS große Spiele nicht automatisch entfernt. Freien Platz zeigen Installer und **Settings → Spiele**. Gemessen: Ein 3,2-GB-Archiv wird in rund 30–40 Sekunden installiert, ohne dass der Arbeitsspeicher mitwächst (siehe TESTING.md).
+**Speicher:** Eine installierte Web-App darf unter iPadOS bis zu etwa **60 % des Gerätespeichers** nutzen. RenOS legt die Spiele deshalb im eigenen Speicher ab (nicht im Speicher eines eingebetteten Spiele-Origins, der auf 10 % davon begrenzt wäre) und fordert dauerhaften Speicher an, damit iPadOS große Spiele nicht automatisch entfernt. Freien Platz zeigen Installer und **Settings → Spiele**. Gemessen: Ein 3,2-GB-Archiv wird in rund 30–40 Sekunden installiert, ohne dass der Arbeitsspeicher mitwächst (siehe TESTING.md).
 
 **Große Visual Novels:** Ren’Py lädt im Browser die `game.zip` vollständig in den Arbeitsspeicher; Bilder, Musik und Stimmen werden dagegen einzeln nachgeladen („Progressive Downloading“, Standard im Ren’Py-Launcher). Ein 3-GB-Spiel funktioniert also, wenn der Großteil seiner Daten als einzelne Dateien neben der `game.zip` liegt – so baut der Launcher Web-Builds standardmäßig.
 
@@ -206,7 +218,7 @@ Installierte Web-Apps haben unter iPadOS einen eigenen Speicher – getrennt von
 - **Safari/WebKit:** Die automatisierten Tests laufen in Chromium. Verhalten von Safari (Speicherlimits, Tastaturereignisse, Fullscreen) ist dokumentiert, aber nicht automatisiert verifiziert.
 - **Tastenkürzel:** iPadOS/Safari kann einzelne Kombinationen (vor allem mit ⌘) abfangen. RenOS nutzt deshalb überwiegend ⌥ (Wahltaste).
 - **Speicher:** iPadOS kann Websitedaten entfernen (z. B. bei Speicherknappheit). RenOS fordert dauerhaften Speicher an und bietet eine Datensicherung; Spielstände sichert man über das Ren’Py-Menü.
-- **Lokaler Modus auf echtem iPad ungetestet:** Installation in den Gerätespeicher, Spiele-Host im fremden iframe (Service Worker, partitionierter Speicher) und Dateiübergabe sind in Chromium getestet, nicht in Safari.
-- **Spiele-Isolation untereinander:** Alle Spiele teilen sich einen Spiele-Origin. Sie sind vollständig von RenOS isoliert, aber nicht voneinander (Ren’Py trennt Spielstände über `config.save_directory`).
+- **Lokaler Modus auf echtem iPad ungetestet:** Installation in den Gerätespeicher, eingebauter Spiele-Host (anonymer Origin, Dateiübergabe per MessagePort) und externer Spiele-Host sind in Chromium getestet, nicht in Safari.
+- **Spiele-Isolation untereinander:** Im eingebauten Spiele-Host hat jedes Spiel einen eigenen anonymen Origin und eigene Spielstände. Im Server-Modus und beim externen Host teilen sich alle Spiele einen Spiele-Origin – von RenOS isoliert, aber nicht voneinander (Ren’Py trennt Spielstände über `config.save_directory`).
 - **Ren’Py-Kompatibilität:** Nicht jeder Web-Build läuft gleich gut in Safari (Speicherbedarf, OGG-Audio, Video). Siehe Ren’Py-Dokumentation „Web / HTML5“.
-- **Große Spiele** werden nicht offline vorgehalten; der Service Worker berührt Spieldateien nie.
+- **Server-Modus:** Große Spiele werden nicht offline vorgehalten; der Service Worker berührt Spieldateien nie. Im lokalen Modus liegen sie ohnehin auf dem iPad.

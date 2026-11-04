@@ -25,9 +25,11 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
-    // Spiele-Host: läuft als Seite bzw. Service Worker im Browser, nicht in Node.
-    files: ['apps/gamehost/**/*.js'],
-    languageOptions: { sourceType: 'script', globals: { ...globals.browser, ...globals.serviceworker } },
+    // Spiele-Hosts: laufen als Seite bzw. Service Worker im Browser, nicht in Node.
+    files: ['apps/gamehost/**/*.js', 'apps/web/src/games/sandbox/**/*.js'],
+    languageOptions: { sourceType: 'script', globals: { ...globals.browser, ...globals.serviceworker, __RENOS_CONFIG__: 'readonly' } },
+    // Bewusst ES5-nah geschrieben (läuft ohne Build-Schritt im Spiel): `var self = this` ist hier üblich.
+    rules: { '@typescript-eslint/no-this-alias': 'off' },
   },
   {
     files: ['apps/web/src/**/*.{ts,tsx}'],
