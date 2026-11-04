@@ -224,6 +224,58 @@ test.describe('Lokaler Modus (ohne Server)', () => {
     expect(apiCalls).toEqual([]);
   });
 
+  test('Browser: zeigt Webseiten und lädt Dateien direkt nach Files → Downloads', async ({ page }) => {
+    // Nachgebildete Server: eine Seite mit Download-Link, ein CDN, das Downloads aus Web-Apps erlaubt (CORS),
+    // und ein Hoster, der es nicht erlaubt.
+    await page.route('https://seite.renos-test.example/**', (route) =>
+      route.fulfill({
+        contentType: 'text/html; charset=utf-8',
+        headers: { 'access-control-allow-origin': '*' },
+        body: '<h1>Szenario-Seite</h1><a href="https://cdn.renos-test.example/packs/Test%20Pack.zip">Pack herunterladen</a><a href="/impressum">Impressum</a>',
+      }),
+    );
+    await page.route('https://cdn.renos-test.example/**', (route) =>
+      route.fulfill({ contentType: 'application/zip', headers: { 'access-control-allow-origin': '*' }, body: Buffer.from('PK\u0003\u0004 renos test pack') }),
+    );
+    // Eine CORS-Sperre meldet der Browser der Web-App als fehlgeschlagene Anfrage (TypeError). Playwright prüft
+    // bei nachgebildeten Antworten kein CORS – deshalb wird die Sperre hier als fehlgeschlagene Anfrage nachgestellt.
+    await page.route('https://hoster.renos-test.example/**', (route) => route.abort('accessdenied'));
+
+    await openDesktop(page, false);
+    await page.keyboard.press('Alt+Space');
+    await page.getByPlaceholder('Anwendungen und Spiele suchen …').fill('Browser');
+    await page.keyboard.press('Enter');
+    const win = windowOf(page, 'browser').last();
+    await expect(win.getByTestId('browser-home')).toBeVisible();
+
+    // Seite ansehen (eingebettet).
+    await win.getByTestId('browser-address').fill('seite.renos-test.example');
+    await win.getByTestId('browser-address').press('Enter');
+    await expect(page.frameLocator('[data-testid="browser-frame"]').locator('h1')).toHaveText('Szenario-Seite');
+
+    // „Herunterladen“ auf der Seite: Sie ist keine Datei – RenOS bietet die gefundenen Datei-Links an.
+    await win.getByTestId('browser-download').click();
+    const dialog = page.getByTestId('download-dialog');
+    await expect(dialog.getByTestId('download-url')).toHaveValue('https://seite.renos-test.example/');
+    await dialog.getByTestId('download-start').click();
+    await expect(dialog.getByTestId('download-link')).toHaveCount(1);
+    await dialog.getByTestId('download-link').click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => filesNamed(page, 'Test Pack.zip')).toEqual([{ parentId: 'downloads', size: 20 }]);
+
+    // Ein Hoster ohne Freigabe: verständliche Meldung statt stillem Fehler.
+    await win.getByTestId('browser-download').click();
+    await page.getByTestId('download-url').fill('https://hoster.renos-test.example/datei.zip');
+    await page.getByTestId('download-start').click();
+    await expect(page.getByTestId('download-error')).toContainText('erlaubt keine Downloads aus Web-Apps');
+    await page.keyboard.press('Escape');
+
+    // Download-Liste.
+    await win.getByTestId('browser-downloads').click();
+    await expect(win.locator('[data-testid="download-item"][data-state="done"]')).toHaveCount(2);
+    await expect(win.locator('[data-testid="download-item"][data-state="error"]')).toHaveCount(1);
+  });
+
   test('prüft Archive auf dem Gerät und lehnt unsichere ab', async ({ page }) => {
     await openDesktop(page);
     const win = await openApp(page, 'installer');
@@ -590,6 +642,8 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         const library = await openApp(page, 'library');
         await library.getByRole('option', { name: /The Question/ }).click();
         await expect(library.getByTestId('game-origin')).toContainText(`Windows, Linux-Build (Ren’Py ${runtime}), umgewandelt · Laufzeit Ren’Py ${runtime}`);
+        // Was das Spiel selbst angelegt hat (das Testszenario), zeigt die Library an.
+        await expect(library.getByTestId('game-added-files')).toContainText('2 Dateien');
         await library.getByRole('option', { name: /The Question/ }).dblclick();
         await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
         frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;

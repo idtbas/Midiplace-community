@@ -9,6 +9,7 @@ import { describeError, errorMessage } from '@/api/client';
 import { canReadLibrary, useServer } from '@/api/server';
 import { IS_LOCAL } from '@/config';
 import { games as gameBackend } from '@/games/backend';
+import { deleteOverlay, overlayUsage } from '@/games/local/overlay';
 import { copySaves, saveStats, type SaveStats } from '@/games/local/saves';
 import { launchGame, openApp } from '@/system/actions';
 import type { AppProps } from '@/system/apps';
@@ -401,7 +402,10 @@ function GameDetails({
           ) : null}
         </dl>
         {IS_LOCAL && !game.playUrl ? (
-          <BuiltinSaves game={game} />
+          <>
+            <BuiltinSaves game={game} />
+            {game.conversion ? <AddedFiles game={game} /> : null}
+          </>
         ) : (
           <Notice className="text-sm">
             <strong className="text-fg">{t.library.savesTitle}.</strong> {t.library.savesText}
@@ -491,6 +495,46 @@ function BuiltinSaves({ game }: { game: Game }) {
       <p className="mt-1 text-fg-subtle">{t.library.savesTextBuiltin}</p>
       <Button size="sm" className="mt-2" icon={ArchiveRestore} onClick={(e) => void chooseSource(e.currentTarget)} data-testid="game-saves-copy">
         {t.library.savesCopy}
+      </Button>
+    </div>
+  );
+}
+
+/** Dateien, die das Spiel selbst angelegt hat (z. B. installierte Szenarien) – RenOS bewahrt sie auf. */
+function AddedFiles({ game }: { game: Game }) {
+  const [usage, setUsage] = useState<{ files: number; bytes: number } | null>(null);
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void overlayUsage(game.id).then((u) => !cancelled && setUsage(u));
+    return () => {
+      cancelled = true;
+    };
+  }, [game.id, version]);
+  if (!usage || usage.files === 0) return null;
+  const remove = async () => {
+    const ok = await confirmDialog({
+      title: 'Hinzugefügte Dateien entfernen?',
+      message: `${usage.files} Dateien (${formatBytes(usage.bytes)}), die „${game.title}“ selbst angelegt hat – z. B. installierte Szenarien. Das Spiel selbst und die Spielstände bleiben.`,
+      confirmLabel: 'Entfernen',
+      destructive: true,
+    });
+    if (!ok) return;
+    await deleteOverlay(game.id);
+    setVersion((v) => v + 1);
+    notify({ kind: 'success', title: 'Hinzugefügte Dateien entfernt', transient: true });
+  };
+  return (
+    <div className="mt-3 rounded-md border border-line-soft bg-surface-2 p-3 text-sm" data-testid="game-added-files">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-semibold text-fg">Vom Spiel hinzugefügt</span>
+        <span className="tabular text-fg-muted">
+          {usage.files} Dateien · {formatBytes(usage.bytes)}
+        </span>
+      </div>
+      <p className="mt-1 text-fg-subtle">Zum Beispiel installierte Szenarien. RenOS gibt sie dem Spiel bei jedem Start wieder mit.</p>
+      <Button size="sm" variant="ghost" className="mt-2" icon={Trash2} onClick={() => void remove()}>
+        Entfernen …
       </Button>
     </div>
   );

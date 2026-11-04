@@ -24,5 +24,6 @@ export const APP_COMPONENTS: Record<AppId, LazyExoticComponent<ComponentType<App
   calculator: lazy(() => import('@/apps/calculator/CalculatorApp')),
   clock: lazy(() => import('@/apps/clock/ClockApp')),
   monitor: lazy(() => import('@/apps/monitor/MonitorApp')),
+  browser: lazy(() => import('@/apps/browser/BrowserApp')),
   player: lazy(() => import('@/apps/player/PlayerApp')),
 };

@@ -65,11 +65,38 @@ Ren’Py-Spiele bestehen aus der Engine (für Windows, Linux oder Mac kompiliert
 - **`.rpa`-Archive** (RPA-3.0, 2.0, 1.0) werden nicht entpackt: RenOS liest ihr Inhaltsverzeichnis und liefert Dateien direkt als Ausschnitt des Archivs – kein doppelter Speicherbedarf. Archive, die nur Skripte enthalten, werden nach der Umwandlung gelöscht.
 - **Offline:** Laufzeit und Spiel liegen auf dem iPad; umgewandelte Spiele starten ohne Internet.
 - **Ältere Installationen:** Verbesserungen der Umwandlung wirken auch für bereits installierte Spiele. RenOS bringt die `game.zip` beim Start auf den neuen Stand (z. B. `.rpy` neben `.rpyc` weglassen, Platzhalter in echter Bildgröße, Ersatz-Module) – ohne Neuinstallation und ohne zusätzlichen Speicher.
+- **Dateien im Spielordner:** Nachladbare Bilder, Musik und Videos liegen bis zum Nachladen als Platzhalter an ihrem echten Pfad. Spiele, die ihre Dateien selbst im Dateisystem suchen (`os.walk`, `glob`, `os.path.exists` – z. B. die Szenario-Bilder von Student Transfer), finden sie so. Ren’Py lädt trotzdem das echte Bild nach.
+- **Datei-Dialoge im Spiel:** Ruft ein Spiel den Datei-Dialog auf (z. B. „Szenario hinzufügen“ in Student Transfer), öffnet sich die **Dateiauswahl von RenOS** – mit den Orten aus Files und „Vom iPad wählen …“. „Speichern unter“ im Spiel legt die Datei in **Files → Downloads** ab.
+- **Vom Spiel angelegte Dateien bleiben erhalten:** Installiert ein Spiel etwas in seinen Spielordner (z. B. ein Szenario aus einer ZIP), bewahrt RenOS diese Dateien pro Spiel auf und gibt sie beim nächsten Start wieder mit – auch offline. Beim Entfernen des Spiels werden sie mit gelöscht.
 - **Library:** zeigt bei umgewandelten Spielen Herkunft, Spielversion und Laufzeit; **Settings → Spiele** zeigt die installierten Laufzeiten.
 
 Die Laufzeitpakete entstehen beim Veröffentlichen auf GitHub aus den offiziellen Ren’Py-SDKs von renpy.org (unverändert; Ren’Py steht unter der MIT-Lizenz, enthaltene Bibliotheken u. a. unter LGPL). Jedes Paket enthält die `LICENSE.txt` des SDK (`renos/runtimes/renpy-<version>/LICENSE.txt`).
 
 Grenzen: Spiele, die eigene Python-Module mit nativem Code, Netzwerkzugriffe oder Funktionen nutzen, die es in der Web-Version von Ren’Py nicht gibt (z. B. Steam-Anbindung), laufen nicht oder nur teilweise. Archive in selbst erfundenen Formaten (manche Spiele verschlüsseln sie) werden erkannt, übersprungen und gemeldet. Ein Spiel, das mit einer neueren Ren’Py-Version als der mitgelieferten gebaut wurde, startet meist trotzdem – RenOS weist darauf hin.
+
+### Browser und Downloads
+
+Die App **Browser** zeigt Webseiten in RenOS und lädt Dateien **direkt nach RenOS** (Files → Downloads) statt in die Dateien-App des iPads. Von dort öffnen Spiele sie in ihrer Dateiauswahl, und der Installer kann sie installieren.
+
+- **Herunterladen:** Knopf „Herunterladen“ (aktuelle Seite oder eingefügter Link). Ist die Adresse eine Webseite, zeigt RenOS die darauf gefundenen Datei-Links zur Auswahl. Tipp: Einen Download-Link auf der Seite gedrückt halten → „Link kopieren“ und einfügen.
+- **Grenzen des Browsers (nicht von RenOS):** Viele Seiten verbieten das Einbetten (Google Drive, Mediafire, Foren) – dann bleibt der Rahmen leer: „In Safari öffnen“. Downloads klappen direkt, wenn der Server sie Web-Apps erlaubt (CORS, z. B. GitHub, student-transfer.com). Sonst die Datei in Safari laden und in Files importieren – oder:
+
+<details>
+<summary>Downloads von allen Seiten: eigener Weiterleitungsdienst (optional, kostenlos)</summary>
+
+Ein kleiner Dienst, der die Datei für RenOS holt – nur für deine RenOS-Adresse, nur lesend, ohne etwas zu speichern. Der Code liegt in [`tools/download-proxy/worker.js`](tools/download-proxy/worker.js).
+
+1. Auf dem iPad in Safari **dash.cloudflare.com** öffnen und kostenlos registrieren.
+2. **Workers & Pages → Create → Worker** → Namen vergeben (z. B. `renos-download`) → **Deploy**.
+3. **Edit code** → den Inhalt von `worker.js` einfügen → **Deploy**.
+4. **Settings → Variables and Secrets → Add**: Name `ALLOWED_ORIGINS`, Wert `https://<dein-name>.github.io` → speichern.
+5. Die Adresse des Workers (`https://renos-download.<konto>.workers.dev`) in RenOS eintragen: **Settings → Browser & Downloads → Eigener Weiterleitungsdienst → Prüfen & speichern**.
+
+RenOS nutzt den Dienst nur, wenn der direkte Download scheitert. Die Datei geht dabei durch deinen eigenen Worker – nicht durch fremde Dienste.
+
+</details>
+
+Im Server-Modus ist der Browser aus Sicherheitsgründen nicht verfügbar (die Sicherheitsrichtlinie von RenOS erlaubt dort keine fremden Seiten).
 
 ### Der eingebaute Spiele-Host
 
@@ -243,3 +270,5 @@ Installierte Web-Apps haben unter iPadOS einen eigenen Speicher – getrennt von
 - **Spiele-Isolation untereinander:** Im eingebauten Spiele-Host hat jedes Spiel einen eigenen anonymen Origin und eigene Spielstände. Im Server-Modus und beim externen Host teilen sich alle Spiele einen Spiele-Origin – von RenOS isoliert, aber nicht voneinander (Ren’Py trennt Spielstände über `config.save_directory`).
 - **Ren’Py-Kompatibilität:** Nicht jeder Web-Build läuft gleich gut in Safari (Speicherbedarf, OGG-Audio, Video). Siehe Ren’Py-Dokumentation „Web / HTML5“.
 - **Server-Modus:** Große Spiele werden nicht offline vorgehalten; der Service Worker berührt Spieldateien nie. Im lokalen Modus liegen sie ohnehin auf dem iPad.
+- **Browser:** Webseiten, die das Einbetten verbieten, bleiben leer; Downloads von Servern ohne CORS-Freigabe brauchen Safari oder den eigenen Weiterleitungsdienst. Einzelne Downloads und Dateien in Files sind auf 512 MB begrenzt.
+- **Datei-Dialoge in Ren’Py 7:** Die Web-Laufzeit von Ren’Py 7 kann nur aus der Hauptschleife des Spiels heraus auf die Dateiauswahl warten (bei Knöpfen im Spiel ist das der Fall).

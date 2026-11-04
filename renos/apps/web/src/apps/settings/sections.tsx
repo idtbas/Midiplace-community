@@ -20,6 +20,7 @@ import { APP_IDS, type AppId } from '@/system/appIds';
 import { confirmDialog, openDialog } from '@/system/dialogs';
 import { notify } from '@/system/notifications';
 import { ACCENTS, DEFAULT_SETTINGS, WALLPAPERS, useSettings, type AccentId, type WallpaperId } from '@/system/settings';
+import { normalizeUrl, proxyUrlFor } from '@/system/downloads';
 import { formatCombo, listShortcuts, subscribeShortcuts } from '@/system/shortcuts';
 import { useWindows } from '@/system/windows';
 import { showAbout } from '@/shell/About';
@@ -894,3 +895,76 @@ export function SessionSection() {
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Browser & Downloads
+// ---------------------------------------------------------------------------
+
+export function BrowserSection() {
+  const s = useSettings();
+  const [proxy, setProxy] = useState(s.downloadProxy);
+  const [home, setHome] = useState(s.browserHome);
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const saveProxy = async () => {
+    const value = proxy.trim().replace(/\/+$/, '');
+    if (!value) {
+      s.set('downloadProxy', '');
+      setStatus({ ok: true, text: 'Kein Weiterleitungsdienst – Downloads nur von Seiten, die es erlauben.' });
+      return;
+    }
+    if (!/^https:\/\/[^\s]+$/.test(value)) {
+      setStatus({ ok: false, text: 'Bitte eine Adresse mit https:// eingeben.' });
+      return;
+    }
+    setChecking(true);
+    try {
+      const response = await fetch(proxyUrlFor(value, 'https://www.renpy.org/'), { mode: 'cors', credentials: 'omit' });
+      if (!response.ok) throw new Error(String(response.status));
+      s.set('downloadProxy', value);
+      setStatus({ ok: true, text: 'Der Weiterleitungsdienst antwortet und ist eingerichtet.' });
+    } catch {
+      setStatus({ ok: false, text: 'Der Dienst antwortet nicht wie erwartet. Adresse und Einrichtung (README → „Downloads von allen Seiten“) prüfen.' });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <>
+      <Group
+        title="Downloads"
+        description="Dateien aus dem Browser von RenOS landen in Files → Downloads. Direkt klappt das bei Seiten, die Downloads aus Web-Apps erlauben."
+      >
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <label htmlFor="download-proxy" className="text-base text-fg">
+            Eigener Weiterleitungsdienst (optional)
+          </label>
+          <p className="text-sm text-fg-subtle">
+            Für Datei-Hoster ohne Freigabe (z. B. Mediafire). Ein kostenloser, eigener Dienst – Anleitung in der README unter „Downloads von allen Seiten“. RenOS nutzt ihn nur,
+            wenn der direkte Download scheitert.
+          </p>
+          <div className="flex gap-2">
+            <TextInput id="download-proxy" value={proxy} onChange={(e) => setProxy(e.target.value)} placeholder="https://mein-dienst.workers.dev" autoCapitalize="off" spellCheck={false} />
+            <Button variant="primary" loading={checking} onClick={() => void saveProxy()}>
+              Prüfen & speichern
+            </Button>
+          </div>
+          {status ? <p className={cn('text-sm', status.ok ? 'text-success' : 'text-danger')}>{status.text}</p> : null}
+        </div>
+      </Group>
+      <Group title="Browser">
+        <div className="flex flex-col gap-2 px-4 py-3">
+          <label htmlFor="browser-home" className="text-base text-fg">
+            Startseite
+          </label>
+          <div className="flex gap-2">
+            <TextInput id="browser-home" value={home} onChange={(e) => setHome(e.target.value)} placeholder="leer = RenOS-Startseite" autoCapitalize="off" spellCheck={false} />
+            <Button onClick={() => s.set('browserHome', home.trim() ? (normalizeUrl(home) ?? '') : '')}>Speichern</Button>
+          </div>
+        </div>
+      </Group>
+    </>
+  );
+}

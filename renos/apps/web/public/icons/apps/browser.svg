@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Browser: Globus mit Download-Pfeil -->
+  <circle cx="122" cy="122" r="82" fill="#5d6167"/>
+  <g fill="none" stroke="#cdd0d4" stroke-width="9" stroke-linecap="round">
+    <ellipse cx="122" cy="122" rx="34" ry="82"/>
+    <path d="M46 96h152M46 148h152M122 40v164"/>
+  </g>
+  <circle cx="186" cy="188" r="38" fill="#8d9096"/>
+  <path d="M186 166v38M170 190l16 16 16-16" fill="none" stroke="#2c2f33" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

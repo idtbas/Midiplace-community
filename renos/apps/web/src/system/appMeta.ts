@@ -149,6 +149,17 @@ export const APP_META: Record<AppId, AppMeta> = {
     singleInstance: true,
     showInLauncher: true,
   },
+  browser: {
+    id: 'browser',
+    name: 'Browser',
+    description: 'Webseiten ansehen, Dateien direkt nach RenOS laden',
+    icon: asset('icons/apps/browser.svg'),
+    keywords: ['browser', 'internet', 'web', 'safari', 'download', 'herunterladen', 'webseite', 'link', 'szenario'],
+    defaultSize: { w: 1000, h: 680 },
+    minSize: { w: 520, h: 380 },
+    singleInstance: true,
+    showInLauncher: true,
+  },
   player: {
     id: 'player',
     name: t.apps.player.name,

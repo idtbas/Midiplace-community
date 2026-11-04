@@ -78,6 +78,22 @@ function DialogView({ dialog }: { dialog: DialogRequest }) {
     else dialog.resolve();
   };
 
+  // Escape schließt den Dialog auch, wenn der Fokus gerade nicht in ihm liegt (z. B. nachdem ein Knopf beim
+  // Laden kurz deaktiviert war). Liegt der Fokus im Dialog, übernimmt das onKeyDown unten.
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (ref.current?.contains(document.activeElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      finishRef.current('cancel');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const submit = () => {
     if (dialog.type === 'prompt' && dialog.validate) {
       const problem = dialog.validate(value);

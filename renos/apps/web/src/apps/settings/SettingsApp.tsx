@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { AppWindow, Database, Gamepad2, Info, Keyboard, LayoutPanelTop, LockKeyhole, Monitor, Palette, PanelBottom } from 'lucide-react';
+import { AppWindow, Database, Gamepad2, Globe, Info, Keyboard, LayoutPanelTop, LockKeyhole, Monitor, Palette, PanelBottom } from 'lucide-react';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
 import type { AppProps } from '@/system/apps';
 import { useWindows } from '@/system/windows';
-import { AboutSection, AppearanceSection, DesktopSection, DockSection, GamesSection, KeyboardSection, SessionSection, StorageSection, WindowsSection } from './sections';
+import { AboutSection, AppearanceSection, BrowserSection, DesktopSection, DockSection, GamesSection, KeyboardSection, SessionSection, StorageSection, WindowsSection } from './sections';
 
 const SECTIONS = [
   { id: 'appearance', label: t.settings.sections.appearance, icon: Palette, component: AppearanceSection },
@@ -15,6 +15,7 @@ const SECTIONS = [
   { id: 'session', label: 'Sperren & Sitzung', icon: LockKeyhole, component: SessionSection },
   { id: 'storage', label: t.settings.sections.storage, icon: Database, component: StorageSection },
   { id: 'games', label: t.settings.sections.games, icon: Gamepad2, component: GamesSection },
+  { id: 'browser', label: 'Browser & Downloads', icon: Globe, component: BrowserSection },
   { id: 'about', label: t.settings.sections.about, icon: Info, component: AboutSection },
 ] as const;
 
