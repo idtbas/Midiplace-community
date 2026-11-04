@@ -6,6 +6,7 @@ data/
 .env.local
 *.log
 test-results/
+test-results-*/
 playwright-report/
 e2e/.artifacts/
 e2e/fixtures/generated/
