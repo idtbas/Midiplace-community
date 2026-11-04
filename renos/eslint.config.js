@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/dev-dist/**', '**/node_modules/**', 'data/**', 'e2e/fixtures/**', 'e2e/.artifacts/**', 'test-results/**', 'playwright-report/**', 'apps/web/public/**'],
+    ignores: ['**/dist/**', '**/dist-local/**', '**/dev-dist/**', '**/node_modules/**', 'data/**', 'e2e/fixtures/**', 'e2e/.artifacts/**', 'test-results/**', 'playwright-report/**', 'apps/web/public/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -23,6 +23,11 @@ export default tseslint.config(
     // Diese Skripte führen Teile ihres Codes per Playwright im Browser aus.
     files: ['scripts/build-assets.mjs', 'e2e/**/*.ts'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  {
+    // Spiele-Host: läuft als Seite bzw. Service Worker im Browser, nicht in Node.
+    files: ['apps/gamehost/**/*.js'],
+    languageOptions: { sourceType: 'script', globals: { ...globals.browser, ...globals.serviceworker } },
   },
   {
     files: ['apps/web/src/**/*.{ts,tsx}'],

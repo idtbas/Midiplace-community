@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { DEFAULT_GAME_HOST, asset } from '@/config';
 import type { AppId } from './appIds';
 
 export const ACCENTS = {
@@ -13,9 +14,9 @@ export const ACCENTS = {
 export type AccentId = keyof typeof ACCENTS;
 
 export const WALLPAPERS = {
-  daemmerung: { label: 'Dämmerung', src: '/wallpapers/daemmerung.jpg', thumb: '/wallpapers/daemmerung-thumb.jpg' },
-  graphit: { label: 'Graphit', src: '/wallpapers/graphit.jpg', thumb: '/wallpapers/graphit-thumb.jpg' },
-  tiefsee: { label: 'Tiefsee', src: '/wallpapers/tiefsee.jpg', thumb: '/wallpapers/tiefsee-thumb.jpg' },
+  daemmerung: { label: 'Dämmerung', src: asset('wallpapers/daemmerung.jpg'), thumb: asset('wallpapers/daemmerung-thumb.jpg') },
+  graphit: { label: 'Graphit', src: asset('wallpapers/graphit.jpg'), thumb: asset('wallpapers/graphit-thumb.jpg') },
+  tiefsee: { label: 'Tiefsee', src: asset('wallpapers/tiefsee.jpg'), thumb: asset('wallpapers/tiefsee-thumb.jpg') },
 } as const;
 export type WallpaperId = keyof typeof WALLPAPERS | 'solid' | 'custom';
 
@@ -48,6 +49,8 @@ export interface Settings {
   filesView: 'list' | 'grid';
   doNotDisturb: boolean;
   libraryCollapsedHelp: boolean;
+  /** Adresse des statischen Spiele-Hosts (nur lokaler Modus). */
+  gameHostUrl: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -76,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   filesView: 'list',
   doNotDisturb: false,
   libraryCollapsedHelp: false,
+  gameHostUrl: DEFAULT_GAME_HOST,
 };
 
 interface SettingsStore extends Settings {
@@ -111,6 +115,7 @@ export const useSettings = create<SettingsStore>()(
         if (!(merged.accent in ACCENTS)) merged.accent = DEFAULT_SETTINGS.accent;
         if (!(merged.dockSize in DOCK_SIZES)) merged.dockSize = DEFAULT_SETTINGS.dockSize;
         if (!Array.isArray(merged.pinnedApps)) merged.pinnedApps = DEFAULT_SETTINGS.pinnedApps;
+        if (typeof merged.gameHostUrl !== 'string' || (!merged.gameHostUrl && DEFAULT_GAME_HOST)) merged.gameHostUrl = DEFAULT_GAME_HOST;
         if (typeof merged.userName !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(merged.userName)) merged.userName = DEFAULT_SETTINGS.userName;
         return merged;
       },

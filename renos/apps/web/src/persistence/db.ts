@@ -36,6 +36,25 @@ export interface Note {
   updatedAt: number;
 }
 
+/** Lokal auf diesem Gerät installiertes Spiel (Modus „lokal“). Die Dateien liegen im OPFS. */
+export interface LocalGame {
+  id: string;
+  title: string;
+  entry: string;
+  sizeBytes: number;
+  fileCount: number;
+  installedAt: string;
+  lastPlayedAt: string | null;
+  sourceFileName: string;
+  runtime: 'wasm' | 'legacy' | null;
+  coverVersion: number;
+}
+
+export interface LocalCover {
+  id: string;
+  data: Blob;
+}
+
 export interface KvEntry {
   key: string;
   value: unknown;
@@ -46,6 +65,8 @@ export class RenosDB extends Dexie {
   blobs!: EntityTable<FsBlob, 'id'>;
   notes!: EntityTable<Note, 'id'>;
   kv!: EntityTable<KvEntry, 'key'>;
+  games!: EntityTable<LocalGame, 'id'>;
+  covers!: EntityTable<LocalCover, 'id'>;
 
   constructor(name = 'renos') {
     super(name);
@@ -54,6 +75,10 @@ export class RenosDB extends Dexie {
       blobs: 'id',
       notes: 'id, updatedAt, title',
       kv: 'key',
+    });
+    this.version(2).stores({
+      games: 'id, title, installedAt',
+      covers: 'id',
     });
   }
 }

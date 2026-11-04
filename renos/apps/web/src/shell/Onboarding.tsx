@@ -8,6 +8,7 @@ import { ACCENTS, useSettings, type AccentId } from '@/system/settings';
 import { formatCombo } from '@/system/shortcuts';
 import { Button } from '@/ui/Button';
 import { Kbd } from '@/ui/Feedback';
+import { IS_LOCAL, asset } from '@/config';
 
 const STEPS = 5;
 
@@ -23,7 +24,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
   const content = [
     <div key="welcome" className="text-center">
-      <img src="/icons/icon-192.png" alt="" className="mx-auto h-24 w-24" draggable={false} />
+      <img src={asset('icons/icon-192.png')} alt="" className="mx-auto h-24 w-24" draggable={false} />
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">Willkommen bei RenOS</h1>
       <p className="mx-auto mt-3 max-w-md text-md text-fg-muted">
         Eine ruhige Desktop-Umgebung für dein iPad – mit Fenstern, Dock und einer Bibliothek für deine Ren’Py-Spiele.
@@ -83,8 +84,10 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       </ol>
       <p className="mt-5 flex items-start gap-2 text-sm text-fg-subtle">
         <Upload size={15} className="mt-0.5 shrink-0" />
-        Für Installation und Verwaltung meldest du dich mit dem Owner-Passwort deines RenOS-Servers an. Windows- oder Mac-Versionen eines Spiels
-        laufen im Browser nicht.
+        {IS_LOCAL
+          ? 'Spiele werden direkt auf diesem iPad installiert – auch große mit mehreren Gigabyte, solange Speicher frei ist. Zum Spielen richtest du einmalig einen kostenlosen Spiele-Host ein (Settings → Spiele).'
+          : 'Für Installation und Verwaltung meldest du dich mit dem Owner-Passwort deines RenOS-Servers an.'}{' '}
+        Windows- oder Mac-Versionen eines Spiels laufen im Browser nicht.
       </p>
     </div>,
     <div key="start" className="text-center">

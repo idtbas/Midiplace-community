@@ -10,6 +10,7 @@ export const E2E_GAME_PORT = 4311;
  */
 export default defineConfig({
   testDir: 'e2e',
+  testIgnore: ['local/**'],
   outputDir: 'test-results',
   timeout: 60_000,
   expect: { timeout: 10_000 },

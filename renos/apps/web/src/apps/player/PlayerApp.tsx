@@ -3,8 +3,11 @@ import { ArrowLeft, Info, Maximize2, Minimize2, RotateCw, ServerOff, TriangleAle
 import { parseBridgeMessage, type Game } from '@renos/shared';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
-import { ApiError, api } from '@/api/client';
+import { ApiError } from '@/api/client';
 import { useServer } from '@/api/server';
+import { IS_LOCAL } from '@/config';
+import { games as gameBackend } from '@/games/backend';
+import { attachHostSession } from '@/games/gameHost';
 import { openApp } from '@/system/actions';
 import type { AppProps } from '@/system/apps';
 import { useSettings } from '@/system/settings';
@@ -31,9 +34,10 @@ type Phase =
   | { name: 'resolving' }
   | { name: 'loading'; booted: boolean; progress: number | null; stalled: boolean }
   | { name: 'running' }
-  | { name: 'error'; kind: 'notFound' | 'unreachable' | 'runtime' | 'unsafe'; detail?: string };
+  | { name: 'error'; kind: 'notFound' | 'unreachable' | 'runtime' | 'unsafe' | 'nohost' | 'host'; detail?: string };
 
-const BOOT_TIMEOUT_MS = 15_000;
+// Lokaler Modus: Beim ersten Start installiert der Spiele-Host seinen Service Worker.
+const BOOT_TIMEOUT_MS = IS_LOCAL ? 30_000 : 15_000;
 const STALL_MS = 90_000;
 
 export default function PlayerApp({ windowId, payload }: AppProps) {
@@ -50,7 +54,7 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
   const [showSavesHint, setShowSavesHint] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const hideTimer = useRef<number | null>(null);
-  const expectedOrigin = game ? new URL(game.playUrl).origin : null;
+  const expectedOrigin = game?.playUrl ? new URL(game.playUrl).origin : null;
 
   // 1. Spiel auflösen und Start vermerken.
   useEffect(() => {
@@ -61,9 +65,15 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
     let cancelled = false;
     (async () => {
       try {
-        const { game: fresh } = await api.markPlayed(gameId);
+        const fresh = await gameBackend.markPlayed(gameId);
         if (cancelled) return;
         upsertGame(fresh);
+        if (!fresh.playUrl) {
+          // Lokaler Modus ohne eingerichteten Spiele-Host.
+          setGame(fresh);
+          setPhase({ name: 'error', kind: 'nohost' });
+          return;
+        }
         if (new URL(fresh.playUrl).origin === window.location.origin) {
           // Spiele dürfen niemals im Origin von RenOS laufen.
           setPhase({ name: 'error', kind: 'unsafe' });
@@ -85,12 +95,10 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
     useWindows.getState().setTitle(windowId, game?.title ?? t.apps.player.name);
   }, [windowId, game?.title]);
 
-  // 2. Nachrichten der Bridge: nur vom eigenen iframe und nur vom Spiele-Origin.
-  useEffect(() => {
-    if (!expectedOrigin) return undefined;
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== expectedOrigin || event.source !== iframeRef.current?.contentWindow) return;
-      const msg = parseBridgeMessage(event.data);
+  // 2. Statusmeldungen der Bridge (im Spiel). Beide Modi verwenden denselben, streng prüfenden Handler.
+  const handleBridge = useCallback(
+    (data: unknown) => {
+      const msg = parseBridgeMessage(data);
       if (!msg) return;
       switch (msg.type) {
         case 'boot':
@@ -114,10 +122,31 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
           else iframeRef.current?.blur();
           break;
       }
+    },
+    [windowId],
+  );
+
+  const frameReady = phase.name === 'loading' || phase.name === 'running';
+  useEffect(() => {
+    if (!expectedOrigin || !frameReady) return undefined;
+    if (IS_LOCAL) {
+      // Lokaler Modus: Die Host-Seite fordert Spieldateien an und reicht Bridge-Meldungen über einen MessagePort weiter.
+      const frame = iframeRef.current;
+      if (!frame || !game) return undefined;
+      return attachHostSession(frame, game.id, expectedOrigin, {
+        onBridgeMessage: handleBridge,
+        onStarted: () => undefined,
+        onHostError: (reason) => setPhase({ name: 'error', kind: 'host', detail: reason }),
+      });
+    }
+    // Server-Modus: Nachrichten nur vom eigenen iframe und nur vom Spiele-Origin.
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== expectedOrigin || event.source !== iframeRef.current?.contentWindow) return;
+      handleBridge(event.data);
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [expectedOrigin, windowId]);
+  }, [expectedOrigin, frameReady, handleBridge, game, reloadKey]);
 
   // 3. Zeitüberwachung: keine Bridge-Meldung → Server/Spiel nicht erreichbar; sehr langes Laden → Hinweis.
   const loading = phase.name === 'loading';
@@ -181,7 +210,7 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
   const barShown = immersive && (pinnedBar || controlsVisible);
 
   return (
-    <div className={cn('relative flex h-full flex-col bg-black', immersive && 'h-full')} data-testid="player" data-phase={phase.name}>
+    <div className={cn('relative flex h-full flex-col bg-black', immersive && 'h-full')} data-testid="player" data-phase={phase.name} data-booted={phase.name === 'loading' && phase.booted ? 'true' : undefined}>
       {!immersive ? (
         <WindowHeader>
           <IconButton icon={Info} label={t.library.savesTitle} size="sm" onClick={() => setShowSavesHint((v) => !v)} active={showSavesHint} />
@@ -283,16 +312,25 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
                 {phase.kind === 'notFound'
                   ? t.player.notFound
                   : phase.kind === 'unreachable'
-                    ? t.player.errorUnreachable
+                    ? IS_LOCAL
+                      ? t.player.errorUnreachableLocal
+                      : t.player.errorUnreachable
                     : phase.kind === 'unsafe'
-                      ? 'Die Server-Konfiguration ist unsicher: Spiele müssen auf einem eigenen Origin laufen (RENOS_GAME_ORIGIN).'
-                      : t.player.errorRuntime}
+                      ? t.player.errorUnsafe
+                      : phase.kind === 'nohost'
+                        ? t.player.errorNoHost
+                        : phase.kind === 'host'
+                          ? t.player.errorHost
+                          : t.player.errorRuntime}
               </p>
               {phase.detail ? (
                 <pre className="selectable mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-0 p-3 text-left font-mono text-xs text-fg-muted">{phase.detail}</pre>
               ) : null}
               <div className="mt-6 flex justify-center gap-2">
-                {phase.kind !== 'notFound' && phase.kind !== 'unsafe' ? (
+                {phase.kind === 'nohost' ? (
+                  <Button onClick={() => openApp('settings', { section: 'games' })}>{t.player.openGameSettings}</Button>
+                ) : null}
+                {phase.kind !== 'notFound' && phase.kind !== 'unsafe' && phase.kind !== 'nohost' ? (
                   <Button icon={RotateCw} onClick={reload}>
                     {t.system.retry}
                   </Button>

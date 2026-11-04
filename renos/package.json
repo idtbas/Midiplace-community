@@ -22,7 +22,9 @@
     "test:e2e": "npm run build && playwright test",
     "hash-password": "node scripts/hash-password.mjs",
     "assets": "node scripts/build-assets.mjs",
-    "testgame": "node scripts/assemble-renpy-testgame.mjs"
+    "testgame": "node scripts/assemble-renpy-testgame.mjs",
+    "build:pages": "npm run build -w @renos/shared && RENOS_BASE=${RENOS_BASE:-/renos/} VITE_RENOS_BACKEND=local npm run build:local -w @renos/web",
+    "test:e2e:local": "RENOS_BASE=/renos/ VITE_RENOS_BACKEND=local npm run build:pages && playwright test -c playwright.local.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

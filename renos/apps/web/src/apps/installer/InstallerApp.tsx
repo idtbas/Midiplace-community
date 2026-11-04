@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, CircleAlert, CircleCheck, CircleX, FileArchive, Info, Library, Play, RotateCcw, ServerOff, UploadCloud } from 'lucide-react';
-import type { AnalysisIssue, Game, InstallJob, UploadInfo } from '@renos/shared';
+import { CheckCircle2, CircleX, FileArchive, Library, Play, RotateCcw, ServerOff, UploadCloud } from 'lucide-react';
+import type { Game, InstallJob, UploadInfo } from '@renos/shared';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { pickFiles } from '@/lib/download';
 import { formatBytes } from '@/lib/format';
 import { ApiError, api, errorMessage, uploadArchive } from '@/api/client';
 import { useServer } from '@/api/server';
+import { IS_LOCAL, asset } from '@/config';
+import { AnalysisView } from './AnalysisView';
+import { LocalInstaller } from './LocalInstaller';
 import { getNode, readBlob } from '@/persistence/fs';
 import { launchGame, openApp } from '@/system/actions';
 import type { AppProps } from '@/system/apps';
 import { notify } from '@/system/notifications';
 import { Button } from '@/ui/Button';
 import { Notice, ProgressBar, Spinner } from '@/ui/Feedback';
-import { Field, TextInput } from '@/ui/Form';
 import { LoginForm } from '@/ui/LoginForm';
 
 type Phase =
@@ -24,7 +26,7 @@ type Phase =
   | { name: 'done'; game: Game | null; title: string }
   | { name: 'error'; title: string; message: string; upload?: UploadInfo };
 
-const STEPS = [t.installer.stepUpload, t.installer.stepCheck, t.installer.stepInstall];
+export const STEPS = [t.installer.stepUpload, t.installer.stepCheck, t.installer.stepInstall];
 
 function stepIndex(phase: Phase): number {
   if (phase.name === 'select' || phase.name === 'uploading') return 0;
@@ -33,7 +35,11 @@ function stepIndex(phase: Phase): number {
   return 2;
 }
 
-export default function InstallerApp({ payload }: AppProps) {
+export default function InstallerApp(props: AppProps) {
+  return IS_LOCAL ? <LocalInstaller {...props} /> : <ServerInstaller {...props} />;
+}
+
+function ServerInstaller({ payload }: AppProps) {
   const server = useServer();
   const isOwner = server.session?.authenticated ?? false;
   const maxUpload = server.health?.limits.maxUploadBytes ?? 0;
@@ -201,7 +207,15 @@ export default function InstallerApp({ payload }: AppProps) {
       </div>
     );
   } else if (phase.name === 'analysed') {
-    content = <AnalysisView phase={phase} onTitle={(title) => setPhase({ ...phase, title })} onInstall={() => void install(phase.upload, phase.title)} onDiscard={() => void discard(phase.upload)} />;
+    content = (
+      <AnalysisView
+        analysis={phase.upload.analysis}
+        title={phase.title}
+        onTitle={(title) => setPhase({ ...phase, title })}
+        onInstall={() => void install(phase.upload, phase.title)}
+        onDiscard={() => void discard(phase.upload)}
+      />
+    );
   } else if (phase.name === 'installing') {
     const { job } = phase;
     const ratio = job.bytesTotal ? job.bytesWritten / job.bytesTotal : 0;
@@ -267,7 +281,7 @@ export default function InstallerApp({ payload }: AppProps) {
     <div className="scroll-area h-full bg-surface-1">
       <div className="mx-auto max-w-[620px] px-8 py-7">
         <div className="flex items-start gap-4">
-          <img src="/icons/apps/installer.png" alt="" className="h-12 w-12" draggable={false} />
+          <img src={asset('icons/apps/installer.png')} alt="" className="h-12 w-12" draggable={false} />
           <div>
             <h2 className="text-xl font-semibold">{t.installer.title}</h2>
             <p className="mt-1 text-base text-fg-muted">{t.installer.subtitle}</p>
@@ -292,105 +306,6 @@ export default function InstallerApp({ payload }: AppProps) {
           </ol>
         ) : null}
         <div className="mt-6">{content}</div>
-      </div>
-    </div>
-  );
-}
-
-function IssueIcon({ issue }: { issue: AnalysisIssue }) {
-  if (issue.severity === 'error') return <CircleX size={15} className="mt-0.5 shrink-0 text-danger" />;
-  if (issue.severity === 'warning') return <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning" />;
-  return <Info size={15} className="mt-0.5 shrink-0 text-fg-subtle" />;
-}
-
-function AnalysisView({
-  phase,
-  onTitle,
-  onInstall,
-  onDiscard,
-}: {
-  phase: Extract<Phase, { name: 'analysed' }>;
-  onTitle: (title: string) => void;
-  onInstall: () => void;
-  onDiscard: () => void;
-}) {
-  const { analysis } = phase.upload;
-  const ok = analysis.installable;
-  return (
-    <div data-testid="installer-analysis" data-kind={analysis.kind} data-installable={ok}>
-      <div className={cn('flex items-start gap-3 rounded-lg border p-4', ok ? 'border-success/30 bg-success-soft' : 'border-warning/30 bg-warning-soft')}>
-        {ok ? <CircleCheck size={20} className="mt-0.5 shrink-0 text-success" /> : <CircleAlert size={20} className="mt-0.5 shrink-0 text-warning" />}
-        <div>
-          <div className="text-base font-semibold text-fg">{t.installer.kind[analysis.kind]}</div>
-          <p className="mt-0.5 text-base text-fg-muted">{t.installer.kindText[analysis.kind]}</p>
-        </div>
-      </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3">
-        <div>
-          <div className="mb-2 text-sm font-semibold text-fg-muted">{t.installer.resultTitle}</div>
-          <ul className="flex flex-col gap-1.5 text-base">
-            {analysis.checks.map((check) => (
-              <li key={check.id} className="flex items-center gap-2">
-                {check.ok ? <CircleCheck size={15} className="text-success" /> : <CircleX size={15} className="text-fg-faint" />}
-                <span className={check.ok ? 'text-fg' : 'text-fg-subtle'}>{t.installer.checks[check.id]}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <dl className="grid grid-cols-[auto_1fr] content-start gap-x-3 gap-y-1.5 text-sm">
-          <dt className="text-fg-subtle">{t.installer.facts.files}</dt>
-          <dd className="tabular text-fg-muted">{analysis.fileCount}</dd>
-          <dt className="text-fg-subtle">{t.installer.facts.packed}</dt>
-          <dd className="tabular text-fg-muted">{formatBytes(analysis.compressedBytes)}</dd>
-          <dt className="text-fg-subtle">{t.installer.facts.unpacked}</dt>
-          <dd className="tabular text-fg-muted">{formatBytes(analysis.uncompressedBytes)}</dd>
-          {analysis.rootPrefix ? (
-            <>
-              <dt className="text-fg-subtle">{t.installer.facts.folder}</dt>
-              <dd className="truncate text-fg-muted">{analysis.rootPrefix}</dd>
-            </>
-          ) : null}
-          {analysis.detectedTitle ? (
-            <>
-              <dt className="text-fg-subtle">{t.installer.facts.title}</dt>
-              <dd className="truncate text-fg-muted">{analysis.detectedTitle}</dd>
-            </>
-          ) : null}
-        </dl>
-      </div>
-
-      {analysis.issues.length ? (
-        <ul className="mt-5 flex flex-col gap-2 rounded-lg border border-line-soft bg-surface-0/60 p-3 text-sm">
-          {analysis.issues.map((issue, i) => (
-            <li key={`${issue.code}-${i}`} className="flex gap-2">
-              <IssueIcon issue={issue} />
-              <span className="text-fg-muted">
-                {t.installer.issues[issue.code]}
-                {issue.path ? <code className="selectable ml-1.5 break-all font-mono text-xs text-fg-subtle">{issue.path}</code> : null}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {ok ? (
-        <div className="mt-6">
-          <Field label={t.installer.titleLabel} htmlFor="installer-title">
-            <TextInput id="installer-title" value={phase.title} maxLength={120} onChange={(e) => onTitle(e.target.value)} />
-          </Field>
-        </div>
-      ) : null}
-
-      <div className="mt-6 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onDiscard}>
-          {ok ? t.installer.discard : t.installer.chooseOther}
-        </Button>
-        {ok ? (
-          <Button variant="primary" onClick={onInstall} disabled={!phase.title.trim()} data-testid="installer-install">
-            {t.installer.install}
-          </Button>
-        ) : null}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { RENOS_VERSION } from '@renos/shared';
 import { t } from '@/i18n';
 import { openDialog } from '@/system/dialogs';
 import { Button } from '@/ui/Button';
+import { asset } from '@/config';
 
 export function showAbout(): void {
   void openDialog({
@@ -9,7 +10,7 @@ export function showAbout(): void {
     width: 440,
     render: (close) => (
       <div className="flex flex-col items-center text-center">
-        <img src="/icons/icon-192.png" alt="" className="h-20 w-20" />
+        <img src={asset('icons/icon-192.png')} alt="" className="h-20 w-20" />
         <h2 className="mt-3 text-xl font-semibold">RenOS</h2>
         <p className="text-sm text-fg-muted">Version {RENOS_VERSION}</p>
         <p className="mt-4 text-base text-fg-muted">

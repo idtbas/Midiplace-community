@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:local": "tsc -p tsconfig.json --noEmit && vite build --outDir dist-local"
   },
   "dependencies": {
     "@renos/shared": "1.0.0",

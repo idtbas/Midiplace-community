@@ -14,6 +14,61 @@ RenOS ersetzt iPadOS nicht. Es läuft als installierte Web-App („Zum Home-Bild
 
 Weitere Dokumente: [ARCHITECTURE.md](ARCHITECTURE.md) · [TESTING.md](TESTING.md) · [STATUS.md](STATUS.md)
 
+RenOS kann auf zwei Arten betrieben werden:
+
+| Modus | Für wen | Spiele liegen … |
+| --- | --- | --- |
+| **Lokal (GitHub Pages)** | Du hast nur ein iPad | direkt auf dem iPad (kein Upload, kein Server, offline spielbar) |
+| **Server** | Du hast einen eigenen Server/VPS | auf dem Server, mehrere Geräte nutzen dieselbe Bibliothek |
+
+---
+
+## RenOS nur mit dem iPad – über GitHub
+
+GitHub kann keinen dauerhaften Server betreiben, aber statische Websites (GitHub Pages) – und mehr braucht RenOS im **lokalen Modus** nicht. Alle Schritte gehen in Safari auf dem iPad.
+
+### 1. RenOS veröffentlichen
+
+Der Workflow `.github/workflows/pages.yml` baut bei jedem Push auf `claude/midiplace-prototype` (Standard-Branch) und auf dem RenOS-Branch automatisch:
+
+- `https://<dein-name>.github.io/Midiplace-community/renos/` – RenOS
+- `https://<dein-name>.github.io/Midiplace-community/renos-games/` – Spiele-Host (wird nur im Fork genutzt, siehe Schritt 3)
+
+Midiplace bleibt unverändert unter `https://<dein-name>.github.io/Midiplace-community/`. Prüfen: github.com → Repository → **Actions** → „Deploy to GitHub Pages“ muss grün sein.
+
+### 2. Auf dem iPad installieren
+
+1. `https://<dein-name>.github.io/Midiplace-community/renos/` in **Safari** öffnen.
+2. **Teilen** → **Zum Home-Bildschirm** → „Als Web-App öffnen“ eingeschaltet lassen → **Hinzufügen**.
+3. RenOS über das neue Symbol starten. (Nur so bekommt RenOS den großen Speicher einer installierten Web-App.)
+
+### 3. Spiele-Host einrichten (einmalig, kostenlos)
+
+Spiele enthalten fremdes JavaScript. Damit sie nie mit den Rechten von RenOS laufen, braucht der Spiele-Host eine **zweite Adresse**. Auf GitHub bekommt man die mit einer kostenlosen Organisation:
+
+1. github.com → Profilbild → **Your organizations** → **New organization** → **Free**. Name z. B. `<dein-name>-games`.
+2. Dieses Repository öffnen → **Fork** → als Owner die neue Organisation wählen → **Create fork**.
+3. Im Fork: **Settings → Pages → Source: GitHub Actions**.
+4. Im Fork: **Actions** → Workflows aktivieren → „Deploy to GitHub Pages“ → **Run workflow**.
+5. Die Adresse lautet dann `https://<dein-name>-games.github.io/Midiplace-community/renos-games/`.
+6. In RenOS: **Settings → Spiele → Spiele-Host** eintragen → **Prüfen & speichern**.
+
+Optional: Im Original-Repository unter **Settings → Secrets and variables → Actions → Variables** die Variable `RENOS_GAME_HOST_URL` mit dieser Adresse anlegen – dann ist sie in neuen Installationen schon vorbelegt. Updates des Spiele-Hosts: im Fork **Sync fork** antippen.
+
+### 4. Spiele installieren
+
+1. Ren’Py-Web-Build (`…-web.zip`) in die **Dateien-App** des iPads legen (z. B. iCloud Drive, Download in Safari).
+2. RenOS → **Installer** → **ZIP-Datei auswählen**. Das Archiv wird auf dem iPad geprüft und entpackt – **nichts wird hochgeladen**, es gibt **kein Größenlimit** außer dem freien Speicher.
+3. Die Library zeigt das Spiel; **Spielen** startet es isoliert über den Spiele-Host.
+
+**Speicher:** Eine installierte Web-App darf unter iPadOS bis zu etwa **60 % des Gerätespeichers** nutzen. RenOS legt die Spiele deshalb im eigenen Speicher ab (nicht im Speicher des Spiele-iframes, der auf 10 % davon begrenzt wäre) und fordert dauerhaften Speicher an, damit iPadOS große Spiele nicht automatisch entfernt. Freien Platz zeigen Installer und **Settings → Spiele**. Gemessen: Ein 3,2-GB-Archiv wird in rund 30–40 Sekunden installiert, ohne dass der Arbeitsspeicher mitwächst (siehe TESTING.md).
+
+**Große Visual Novels:** Ren’Py lädt im Browser die `game.zip` vollständig in den Arbeitsspeicher; Bilder, Musik und Stimmen werden dagegen einzeln nachgeladen („Progressive Downloading“, Standard im Ren’Py-Launcher). Ein 3-GB-Spiel funktioniert also, wenn der Großteil seiner Daten als einzelne Dateien neben der `game.zip` liegt – so baut der Launcher Web-Builds standardmäßig.
+
+### Tests auf GitHub
+
+`.github/workflows/renos-ci.yml` führt bei jedem Push Typecheck, Lint, alle Unit-Tests und die Browser-Tests aus – inklusive eines echten Ren’Py-8.5-Laufzeittests im Server- **und** im lokalen Modus. Ergebnisse: github.com → **Actions** → „RenOS CI“.
+
 ---
 
 ## Technologie
@@ -74,7 +129,9 @@ Weitere Befehle:
 | `npm run typecheck` | TypeScript für alle Pakete und E2E-Tests |
 | `npm run lint` | ESLint |
 | `npm test` | Unit- und Integrationstests (Server + Frontend) |
-| `npm run test:e2e` | Build + Playwright-Browsertests |
+| `npm run test:e2e` | Build + Playwright-Browsertests (Server-Modus) |
+| `npm run build:pages` | Statischer Build für den lokalen Modus (`RENOS_BASE` = Pfad, Standard `/renos/`) |
+| `npm run test:e2e:local` | Build + Browsertests des lokalen Modus (wie GitHub Pages, ohne Server) |
 | `npm run hash-password` | scrypt-Hash für das Owner-Passwort erzeugen |
 | `npm run assets` | Icons, PWA-Icons und Wallpaper aus `assets/` neu erzeugen |
 | `npm run testgame -- <sdk>` | Ren’Py-Testspiel als Web-Build zusammensetzen (siehe TESTING.md) |
@@ -91,8 +148,8 @@ Alle Einstellungen kommen aus Umgebungsvariablen (oder `.env` im Ordner `renos/`
 | `RENOS_DATA_DIR` | `./data` | SQLite-Datenbank, Uploads, installierte Spiele, Cover |
 | `RENOS_OWNER_PASSWORD_HASH` | – | scrypt-Hash des Owner-Passworts (`npm run hash-password`) |
 | `RENOS_PUBLIC_LIBRARY` | `false` | Spieleliste auch ohne Anmeldung lesbar |
-| `RENOS_MAX_UPLOAD_MB` / `RENOS_MAX_UNCOMPRESSED_MB` | 2048 / 4096 | Grenzen für Archive |
-| `RENOS_MAX_ARCHIVE_ENTRIES` / `RENOS_MAX_COMPRESSION_RATIO` | 20000 / 200 | Schutz vor Zip-Bombs |
+| `RENOS_MAX_UPLOAD_MB` / `RENOS_MAX_UNCOMPRESSED_MB` | 16384 / 32768 | Grenzen für Archive (16 GB / 32 GB) |
+| `RENOS_MAX_ARCHIVE_ENTRIES` / `RENOS_MAX_COMPRESSION_RATIO` | 100000 / 200 | Schutz vor Zip-Bombs |
 | `RENOS_TRUST_PROXY` | `false` | hinter Caddy/nginx auf `true` |
 
 In Produktion verlangt der Server HTTPS-Origins (außer `localhost`) und startet ohne Owner-Passwort mit gesperrter Verwaltung.
@@ -116,7 +173,9 @@ docker compose up -d --build
 
 Caddy holt die Zertifikate automatisch bei Let’s Encrypt. Ohne Docker: `npm run build && npm start` hinter einem beliebigen Reverse Proxy, der beide Hostnamen per HTTPS auf Port 8787 bzw. 8788 weiterleitet (große Request-Bodies erlauben, z. B. nginx `client_max_body_size 2g`).
 
-## Ren’Py-Web-Build importieren
+## Ren’Py-Web-Build importieren (Server-Modus)
+
+Im lokalen Modus siehe oben „Spiele installieren“.
 
 1. Im **Ren’Py-Launcher** das Projekt wählen → **Web (Beta)** → **Build Web Application**.
 2. Die erzeugte Datei `<Projekt>-<Version>-web.zip` aufs iPad bringen (z. B. iCloud Drive).
@@ -142,6 +201,7 @@ Installierte Web-Apps haben unter iPadOS einen eigenen Speicher – getrennt von
 - **Safari/WebKit:** Die automatisierten Tests laufen in Chromium. Verhalten von Safari (Speicherlimits, Tastaturereignisse, Fullscreen) ist dokumentiert, aber nicht automatisiert verifiziert.
 - **Tastenkürzel:** iPadOS/Safari kann einzelne Kombinationen (vor allem mit ⌘) abfangen. RenOS nutzt deshalb überwiegend ⌥ (Wahltaste).
 - **Speicher:** iPadOS kann Websitedaten entfernen (z. B. bei Speicherknappheit). RenOS fordert dauerhaften Speicher an und bietet eine Datensicherung; Spielstände sichert man über das Ren’Py-Menü.
+- **Lokaler Modus auf echtem iPad ungetestet:** Installation in den Gerätespeicher, Spiele-Host im fremden iframe (Service Worker, partitionierter Speicher) und Dateiübergabe sind in Chromium getestet, nicht in Safari.
 - **Spiele-Isolation untereinander:** Alle Spiele teilen sich einen Spiele-Origin. Sie sind vollständig von RenOS isoliert, aber nicht voneinander (Ren’Py trennt Spielstände über `config.save_directory`).
 - **Ren’Py-Kompatibilität:** Nicht jeder Web-Build läuft gleich gut in Safari (Speicherbedarf, OGG-Audio, Video). Siehe Ren’Py-Dokumentation „Web / HTML5“.
 - **Große Spiele** werden nicht offline vorgehalten; der Service Worker berührt Spieldateien nie.

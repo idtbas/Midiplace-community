@@ -1,4 +1,5 @@
 import { Workbox } from 'workbox-window';
+import { BASE_URL, asset } from '@/config';
 import { notify } from '@/system/notifications';
 
 /**
@@ -22,7 +23,7 @@ export function registerServiceWorker(): void {
     registrationState = 'dev';
     return;
   }
-  workbox = new Workbox('/sw.js', { scope: '/' });
+  workbox = new Workbox(asset('sw.js'), { scope: BASE_URL });
   workbox.addEventListener('waiting', () => {
     notify({
       kind: 'info',

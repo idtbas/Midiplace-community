@@ -1,10 +1,11 @@
 import { File, FileArchive, FileAudio, FileImage, FileText, FileVideo } from 'lucide-react';
 import type { FsNode } from '@/persistence/db';
 import { isImageFile, isTextFile, isZipFile } from '@/persistence/fs';
+import { asset } from '@/config';
 
 export function FileIcon({ node, size }: { node: Pick<FsNode, 'kind' | 'name' | 'mime'>; size: number }) {
   if (node.kind === 'folder') {
-    return <img src="/icons/apps/files.png" alt="" draggable={false} style={{ width: size, height: size }} className="shrink-0" />;
+    return <img src={asset('icons/apps/files.png')} alt="" draggable={false} style={{ width: size, height: size }} className="shrink-0" />;
   }
   const iconSize = Math.round(size * 0.78);
   const Icon = isZipFile(node)

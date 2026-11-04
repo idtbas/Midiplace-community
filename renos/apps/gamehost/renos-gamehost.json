@@ -1,0 +1,5 @@
+{
+  "name": "renos-gamehost",
+  "protocol": 1,
+  "description": "Statischer Spiele-Host für RenOS (lokaler Modus)"
+}

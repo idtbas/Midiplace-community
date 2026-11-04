@@ -5,8 +5,11 @@ import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { pickFiles } from '@/lib/download';
 import { formatBytes, formatDateTime, formatRelative } from '@/lib/format';
-import { api, describeError, errorMessage } from '@/api/client';
+import { describeError, errorMessage } from '@/api/client';
 import { canReadLibrary, useServer } from '@/api/server';
+import { IS_LOCAL } from '@/config';
+import { games as gameBackend } from '@/games/backend';
+import { gameHostUrl } from '@/games/gameHost';
 import { launchGame, openApp } from '@/system/actions';
 import type { AppProps } from '@/system/apps';
 import { showContextMenu, type MenuEntry } from '@/system/contextMenu';
@@ -32,6 +35,8 @@ export default function LibraryApp(_props: AppProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const hostSetting = useSettings((st) => st.gameHostUrl);
+  const hostMissing = IS_LOCAL && !gameHostUrl(hostSetting);
 
   useEffect(() => {
     if (readable && server.status !== 'offline') {
@@ -64,7 +69,7 @@ export default function LibraryApp(_props: AppProps) {
       return;
     }
     try {
-      const { game: updated } = await api.setCover(game.id, file);
+      const updated = await gameBackend.setCover(game.id, file);
       server.upsertGame(updated);
       notify({ kind: 'success', title: t.library.coverUpdated, transient: true });
     } catch (error) {
@@ -74,7 +79,7 @@ export default function LibraryApp(_props: AppProps) {
 
   const removeCover = async (game: Game) => {
     try {
-      const { game: updated } = await api.removeCover(game.id);
+      const updated = await gameBackend.removeCover(game.id);
       server.upsertGame(updated);
     } catch (error) {
       notify({ kind: 'error', title: errorMessage(error) });
@@ -91,7 +96,7 @@ export default function LibraryApp(_props: AppProps) {
     });
     if (!title || title === game.title) return;
     try {
-      const { game: updated } = await api.renameGame(game.id, title);
+      const updated = await gameBackend.rename(game.id, title);
       server.upsertGame(updated);
       notify({ kind: 'success', title: t.library.renamed, transient: true });
     } catch (error) {
@@ -108,7 +113,7 @@ export default function LibraryApp(_props: AppProps) {
     });
     if (!ok) return;
     try {
-      await api.deleteGame(game.id);
+      await gameBackend.remove(game.id);
       server.removeGame(game.id);
       if (selectedId === game.id) setSelectedId(null);
       void server.loadStorage();
@@ -315,21 +320,35 @@ export default function LibraryApp(_props: AppProps) {
         <div className="mt-auto flex flex-col gap-3 px-4">
           {server.storage ? (
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{t.library.serverStorage}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{IS_LOCAL ? t.library.deviceStorage : t.library.serverStorage}</div>
               <p className="mt-1 text-sm text-fg-muted">
                 {t.library.gamesCount(server.storage.gamesCount)} · {formatBytes(server.storage.gamesBytes)}
               </p>
-              {server.storage.diskFreeBytes !== null ? <p className="text-xs text-fg-subtle">{t.library.freeOnServer(formatBytes(server.storage.diskFreeBytes))}</p> : null}
+              {server.storage.diskFreeBytes !== null ? (
+                <p className="text-xs text-fg-subtle">
+                  {IS_LOCAL ? t.library.freeOnDevice(formatBytes(server.storage.diskFreeBytes)) : t.library.freeOnServer(formatBytes(server.storage.diskFreeBytes))}
+                </p>
+              ) : null}
             </div>
           ) : null}
-          {isOwner ? (
+          {isOwner && !IS_LOCAL ? (
             <button type="button" className="flex items-center gap-2 text-sm text-fg-subtle hover:text-fg" onClick={() => void server.logout()}>
               <LogOut size={14} /> {t.auth.logout}
             </button>
           ) : null}
         </div>
       </aside>
-      <section className="min-w-0 flex-1 bg-surface-1">{body}</section>
+      <section className="flex min-w-0 flex-1 flex-col bg-surface-1">
+        {hostMissing ? (
+          <Notice kind="warning" className="m-3 mb-0 text-sm" >
+            {t.installer.noHostHint}{' '}
+            <button type="button" className="font-medium text-fg underline" onClick={() => openApp('settings', { section: 'games' })}>
+              {t.player.openGameSettings}
+            </button>
+          </Notice>
+        ) : null}
+        <div className="min-h-0 flex-1">{body}</div>
+      </section>
     </div>
   );
 }

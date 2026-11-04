@@ -5,8 +5,10 @@
 | Ebene | Werkzeug | Umfang | Befehl |
 | --- | --- | --- | --- |
 | Server: Unit + Integration | Vitest + `fastify.inject` | 52 Tests | `npm test -w @renos/server` |
-| Frontend: Unit | Vitest + jsdom + fake-indexeddb | 38 Tests | `npm test -w @renos/web` |
-| Browser-E2E | Playwright (Chromium) | 24 Tests, davon 1 mit echter Ren’Py-Laufzeit | `npm run test:e2e` |
+| Frontend: Unit | Vitest + jsdom + fake-indexeddb | 46 Tests | `npm test -w @renos/web` |
+| Browser-E2E (Server-Modus) | Playwright (Chromium) | 24 Tests, davon 1 mit echter Ren’Py-Laufzeit | `npm run test:e2e` |
+| Browser-E2E (lokaler Modus) | Playwright, zwei statische Server wie GitHub Pages | 4 Tests, davon 1 mit echter Ren’Py-Laufzeit | `npm run test:e2e:local` |
+| GitHub Actions | `.github/workflows/renos-ci.yml` | alles oben inkl. Ren’Py-Download | bei jedem Push |
 | Statische Prüfung | TypeScript 6 (strict), ESLint | alle Pakete + E2E | `npm run typecheck`, `npm run lint` |
 
 Alle oben genannten Tests liefen zuletzt vollständig erfolgreich (Chromium 1.63-Build unter Linux). Sie wurden **nicht** in Safari/WebKit und **nicht** auf einem echten iPad ausgeführt.
@@ -26,6 +28,18 @@ Alle oben genannten Tests liefen zuletzt vollständig erfolgreich (Chromium 1.63
 - Terminal-Parser (Anführungszeichen, Escapes, keine Ausführung von `$(…)`/Backticks) und Befehle mit echtem virtuellem Dateisystem (ls, cd, pwd, mkdir, cat, neofetch ohne erfundene Hardwarewerte, games offline, Vervollständigung).
 - Virtuelles Dateisystem (Standardordner, Namensprüfung, Kollisionen, Papierkorb, Wiederherstellen, Schutz der Standardordner, rekursives Kopieren/Verschieben, kein Verschieben in sich selbst).
 - Notizen, Datensicherung (vollständiger Export/Import-Rundlauf), Launcher-Suche, Bridge-Nachrichtenvalidierung.
+- Browser-ZIP-Leser (`games/local/zipReader.test.ts`): CRC32 gegen zlib, Inhaltsverzeichnis, Entpacken, gleiche Analyse wie der Server, **ZIP64**, Zip-Bomb mit gefälschter Größe, beschädigte Daten (CRC), CP437-Namen und Backslashes.
+
+### Lokaler Modus (`e2e/local/local.spec.ts`)
+
+`npm run test:e2e:local` baut RenOS statisch unter `/renos/` und startet zwei rein statische Server (wie GitHub Pages): `localhost:4320/renos/` (RenOS) und `localhost:4321/renos-games/` (Spiele-Host).
+
+- läuft ohne einen einzigen API-Aufruf; Einrichtung des Spiele-Hosts in den Einstellungen inkl. Ablehnung derselben Adresse und falscher Adressen
+- Archivprüfung auf dem Gerät (unsicheres Archiv, Desktop-Build)
+- Installation ins OPFS, Start über den Spiele-Host, MIME-Typ `application/wasm` und Range-Antworten aus dem Service Worker, keine Dateien anderer Spiele, Entfernen löscht die Dateien
+- **echte Ren’Py-Laufzeit**: lokal installiert, isoliert gestartet (`window.top.document` → `SecurityError`), Enter erreicht das Spiel, Spielstand und `persistent`-Daten überstehen Schließen und Neuladen
+
+Zusätzlich manuell gemessen (Chromium, persistentes Profil, siehe ARCHITECTURE.md): 3,2-GB-Archiv (ZIP64-Felder, gespeichert) in ~30 s installiert, Renderer-Speicher +30 MB; 1,5 GB deflate +324 MB. Hinweis: In Playwrights Standard-Inkognito-Profil liegt OPFS im RAM (4-GB-Grenze); dort sind Multi-GB-Installationen nicht aussagekräftig.
 
 ### Browser-E2E (`e2e/*.spec.ts`)
 
@@ -76,6 +90,14 @@ Diese Tests konnten mangels Hardware **nicht** durchgeführt werden. Voraussetzu
 - [ ] Prüfen und dokumentieren, welche Kürzel iPadOS abfängt (insbesondere mit ⌘ und Globe-Taste).
 - [ ] Notes: ⌘N, ⌘F; Terminal: ↑/↓ Verlauf, Tab, ⌃L, ⌃C.
 
+### Lokaler Modus (GitHub Pages)
+- [ ] RenOS von `https://<name>.github.io/Midiplace-community/renos/` zum Home-Bildschirm hinzufügen und starten.
+- [ ] Spiele-Host (Fork in Organisation) unter Settings → Spiele eintragen → „Spiele-Host gefunden“.
+- [ ] Großes Spiel (> 3 GB) aus der Dateien-App installieren: Fortschritt läuft durch, RenOS bleibt flüssig, Library zeigt Größe; „Noch verfügbar“ sinkt entsprechend.
+- [ ] Spiel starten (Spiele-Host im fremden iframe: Service Worker + partitionierter Speicher in Safari), Spielstand speichern, RenOS beenden, erneut spielen.
+- [ ] Flugmodus: bereits einmal gestartetes Spiel offline spielen.
+- [ ] Settings → Spiele → „Dauerhafter Speicher“ ist aktiv.
+
 ### Spiele
 - [ ] ZIP-Datei aus der Dateien-App/iCloud Drive im Installer auswählen; Upload-Fortschritt läuft; Abbrechen funktioniert.
 - [ ] Ein echtes Ren’Py-Spiel starten: Laden, Ton nach erstem Tippen, Klick/Tap rückt Dialoge vor, Tastatur (Leertaste/Enter/Esc) erreicht das Spiel.
@@ -97,6 +119,7 @@ Diese Tests konnten mangels Hardware **nicht** durchgeführt werden. Voraussetzu
 - **Standalone-Erkennung** wird im Test durch Überschreiben von `navigator.standalone` simuliert.
 - **Speicherräumung durch iPadOS** (7-Tage-Regel/Speicherdruck) ist nicht automatisiert testbar.
 - **Ren’Py-Vielfalt:** Getestet wurde ein minimales eigenes Spiel. Große Spiele (Speicherbedarf, progressive Downloads, OGG-Audio in Safari, Video) sind nicht abgedeckt.
+- **Safari im fremden iframe:** Der Spiele-Host läuft im lokalen Modus als iframe einer anderen Website (`github.io` ist eine „Public Suffix“-Domain). Service Worker und Speicher sind dort in Safari partitioniert; laut WebKit unterstützt, aber nicht auf einem Gerät geprüft. Fallback bei Problemen: eigene Domain mit zwei Subdomains (gleiche Website).
 - **Docker-Image** konnte hier nicht gebaut werden (kein Docker-Daemon in der Testumgebung); `npm run build && npm start` im Produktionsmodus wurde dagegen geprüft.
 
 ## Noch nicht durchführbare Tests

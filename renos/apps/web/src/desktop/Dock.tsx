@@ -11,6 +11,7 @@ import { showContextMenu, type MenuEntry } from '@/system/contextMenu';
 import { DOCK_SIZES, useSettings } from '@/system/settings';
 import { useShell } from '@/system/shell';
 import { useWindows } from '@/system/windows';
+import { asset } from '@/config';
 
 export function dockReserve(size: keyof typeof DOCK_SIZES, autohide: boolean): number {
   return autohide ? 0 : DOCK_SIZES[size] + 26;
@@ -213,7 +214,7 @@ export function Dock() {
           <DockItem
             id="trash"
             label={t.desktop.trash}
-            icon="/icons/apps/trash.png"
+            icon={asset('icons/apps/trash.png')}
             size={size}
             running={false}
             active={false}

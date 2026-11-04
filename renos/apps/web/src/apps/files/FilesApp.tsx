@@ -61,6 +61,7 @@ import { TextInput } from '@/ui/Form';
 import { FileIcon } from './FileIcon';
 import { FilePreview } from './FilePreview';
 import { exportNodes, importFiles, pickAndImport } from './fileOps';
+import { asset } from '@/config';
 
 type Location = string; // Ordner-ID oder 'trash'
 type SortKey = 'name' | 'size' | 'modifiedAt' | 'kind';
@@ -502,7 +503,7 @@ export default function FilesApp({ windowId, payload }: AppProps) {
               {...dropProps(place.id)}
               data-place={PLACE_ICONS[place.id] ?? place.id}
             >
-              <img src="/icons/apps/files.png" alt="" className="h-[18px] w-[18px]" draggable={false} />
+              <img src={asset('icons/apps/files.png')} alt="" className="h-[18px] w-[18px]" draggable={false} />
               <span className="truncate">{place.name}</span>
             </button>
           ))}
@@ -516,7 +517,7 @@ export default function FilesApp({ windowId, payload }: AppProps) {
             )}
             {...dropProps('trash')}
           >
-            <img src="/icons/apps/trash.png" alt="" className="h-[18px] w-[18px]" draggable={false} />
+            <img src={asset('icons/apps/trash.png')} alt="" className="h-[18px] w-[18px]" draggable={false} />
             <span>{t.files.trash}</span>
           </button>
           <div className="mt-auto px-4 pt-3">

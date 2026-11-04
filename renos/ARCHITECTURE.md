@@ -30,6 +30,31 @@
 └───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## Lokaler Modus (ohne Server, z. B. GitHub Pages)
+
+```
+┌──────────── iPad: installierte Web-App RenOS (Origin A, z. B. idtbas.github.io) ─────────────┐
+│  Installer ─► Worker: ZIP lesen (Blob.slice, ZIP64, CRC) ─► OPFS  renos-games/<id>/…        │
+│               (gleiche Sicherheitsregeln wie der Server: packages/shared/src/archive.ts)    │
+│  IndexedDB: Spiel-Metadaten, Cover                                                          │
+│                                                                                             │
+│  Player ─ iframe ─► Origin B (z. B. idtbas-games.github.io)  host.html?game=<id>            │
+│              ▲         │  ① „ready“ → RenOS antwortet mit MessagePort („init“)              │
+│   MessagePort│         │  ② registriert sw.js, lädt inneres iframe play/<id>/index.html     │
+│   file(path) │         │  ③ sw.js: GET play/<id>/<pfad> → Host-Seite → Port → RenOS         │
+│   ◄─ File ───┘         │     liest Datei aus OPFS (nur dieses Spiel, nur lesend) → Response │
+│                        │     mit MIME, Range, CSP; index.html bekommt bridge.js             │
+│                        └► Ren’Py läuft im Origin B; Spielstände: IDBFS im Origin B         │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Warum die Dateien bei RenOS liegen:** Laut WebKit-Speicherrichtlinie dürfen Home-Bildschirm-Web-Apps bis zu 60 % des Datenträgers nutzen, ein iframe einer anderen Adresse aber nur 10 % davon. Mehrere Gigabyte große Spiele passen deshalb nur in den Speicher von RenOS selbst. Ausgeführt werden sie trotzdem auf Origin B.
+- **Spiele-Host** (`apps/gamehost`, rein statisch): `host.html`/`host.js` (Handshake, Weiterleitung), `sw.js` (Dateiauslieferung, Offline-Cache der Host-Dateien), `bridge.js` (Statusmeldungen), `renos-gamehost.json` (Kennung für die Prüfung in den Einstellungen; GitHub Pages erlaubt CORS).
+- **Sicherheitsgrenzen:** RenOS nimmt den Handshake nur vom eigenen Player-iframe und vom eingestellten Spiele-Origin an, beantwortet Dateianfragen nur für das laufende Spiel, nur für installierte Spiele (Datenbankeintrag) und mit derselben Pfadprüfung wie beim Entpacken. Die Adresse des Spiele-Hosts muss sich von der RenOS-Adresse unterscheiden (geprüft in Einstellungen und Player). Ren’Pys eigener Service Worker wird nicht registriert, weil die Spielseite bereits vom Host-Service-Worker kontrolliert wird.
+- **Installation:** Analyse liest nur das Inhaltsverzeichnis (Millisekunden). Beim Entpacken liest ein BYOB-Reader in einen einzigen wiederverwendeten 4-MB-Puffer und schreibt über `createSyncAccessHandle()` (Rückfall: 4-MB-Abschnitte bzw. `createWritable()`). Gemessen in Chromium: 3,2 GB gespeichert in ~30 s mit +30 MB Arbeitsspeicher; 1,5 GB deflate mit +324 MB. Das Spiel erscheint erst nach erfolgreichem Datenbankeintrag; verwaiste Ordner werden beim Start entfernt.
+- **Offline:** RenOS (Workbox) und der Spiele-Host (eigener Service Worker) cachen ihre Shell; Spieldateien liegen ohnehin lokal. Der erste Start eines Spiels braucht eine Verbindung, damit der Host-Service-Worker installiert wird.
+- **Modus-Wahl:** zur Build-Zeit über `VITE_RENOS_BACKEND=local`; `src/games/backend.ts` kapselt Server- und lokale Implementierung hinter derselben Schnittstelle.
+
 ## Repository-Struktur
 
 ```
@@ -55,7 +80,8 @@ renos/
 │     ├─ ui/            Wiederverwendbare Komponenten (Button, Form, Feedback, LoginForm, AppIcon)
 │     ├─ i18n/          Alle Texte (Deutsch), vorbereitet für weitere Sprachen
 │     └─ styles/        Design-Tokens (CSS Custom Properties) + Tailwind-Theme
-├─ e2e/                 Playwright-Tests, Testserver, eigenes Ren’Py-Testspiel
+├─ apps/gamehost/       Statischer Spiele-Host für den lokalen Modus (zweiter Origin)
+├─ e2e/                 Playwright-Tests (Server- und lokaler Modus), Testserver, eigenes Ren’Py-Testspiel
 ├─ assets/              Originale des Icon-Pakets und SVG-Quellen der ergänzten Icons
 ├─ scripts/             Asset-Generator, Passwort-Hash, Testspiel-Assembler
 └─ deploy/              Docker Compose + Caddy (HTTPS)

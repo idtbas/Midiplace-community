@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Bell, BellOff, ChevronDown, Server, ServerOff, Settings2, SlidersHorizontal, Wifi, WifiOff } from 'lucide-react';
+import { Bell, BellOff, ChevronDown, HardDrive, Server, ServerOff, Settings2, SlidersHorizontal, Wifi, WifiOff } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { t, locale } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { useServer } from '@/api/server';
+import { IS_LOCAL } from '@/config';
+import { gameHostUrl } from '@/games/gameHost';
 import { openApp } from '@/system/actions';
 import { APP_META } from '@/system/appMeta';
 import { showMenuAt, type MenuEntry } from '@/system/contextMenu';
@@ -108,7 +110,13 @@ export function TopBar() {
     showMenuAt(e.currentTarget, items);
   };
 
-  const serverLabel =
+  const hostSetting = useSettings((st) => st.gameHostUrl);
+  const hostReady = Boolean(gameHostUrl(hostSetting));
+  const serverLabel = IS_LOCAL
+    ? hostReady
+      ? 'Spiele lokal auf diesem iPad'
+      : 'Spiele lokal auf diesem iPad – Spiele-Host noch nicht eingerichtet'
+    :
     server.status === 'offline' ? t.topbar.serverOffline : server.authenticated || server.publicLibrary ? t.topbar.serverOnline : t.topbar.serverAuth;
 
   return (
@@ -151,7 +159,9 @@ export function TopBar() {
           data-testid="server-status"
           data-status={server.status}
         >
-          {server.status === 'offline' ? (
+          {IS_LOCAL ? (
+            <HardDrive size={15} strokeWidth={2} className={hostReady ? 'text-fg-muted' : 'text-warning'} />
+          ) : server.status === 'offline' ? (
             <ServerOff size={15} strokeWidth={2} className="text-warning" />
           ) : (
             <Server size={15} strokeWidth={2} className={server.authenticated || server.publicLibrary ? 'text-fg-muted' : 'text-fg-subtle'} />

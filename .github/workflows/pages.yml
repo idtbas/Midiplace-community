@@ -1,8 +1,14 @@
 name: Deploy to GitHub Pages
 
+# Veröffentlicht die Website:
+#   /                → Midiplace (unverändert)
+#   /renos/          → RenOS als Web-App (lokaler Modus: Spiele werden auf dem iPad installiert)
+#   /renos-games/    → statischer Spiele-Host. Muss auf einer ANDEREN Adresse laufen als RenOS –
+#                      dafür wird dieses Repository in eine (kostenlose) GitHub-Organisation geforkt,
+#                      deren Pages-Adresse dann als Spiele-Host dient (siehe renos/README.md).
 on:
   push:
-    branches: [claude/midiplace-prototype, main, master]
+    branches: [claude/midiplace-prototype, claude/renos-desktop-os-bvdtya, main, master]
   workflow_dispatch:
 
 permissions:
@@ -22,11 +28,31 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: renos/package-lock.json
+      - name: Install RenOS dependencies
+        working-directory: renos
+        run: npm ci
+      - name: Build RenOS (local mode)
+        working-directory: renos
+        env:
+          RENOS_BASE: /${{ github.event.repository.name }}/renos/
+          # Optional: Adresse des Spiele-Hosts als Repository-Variable vorbelegen
+          # (Settings → Secrets and variables → Actions → Variables → RENOS_GAME_HOST_URL).
+          VITE_RENOS_GAME_HOST: ${{ vars.RENOS_GAME_HOST_URL }}
+        run: npm run build:pages
       - uses: actions/configure-pages@v5
       - name: Collect site files
         run: |
           mkdir _site
           cp -r index.html css js _site/
+          cp -r renos/apps/web/dist-local _site/renos
+          find _site/renos -name '*.map' -delete
+          mkdir _site/renos-games
+          cp renos/apps/gamehost/*.html renos/apps/gamehost/*.js renos/apps/gamehost/*.json _site/renos-games/
           touch _site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:

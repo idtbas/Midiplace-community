@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import type { ApiErrorCode, Game, HealthResponse, SessionResponse, StorageInfoResponse } from '@renos/shared';
+import { RENOS_VERSION, type ApiErrorCode, type Game, type HealthResponse, type SessionResponse, type StorageInfoResponse } from '@renos/shared';
+import { IS_LOCAL, normalizeGameHost } from '@/config';
+import { games as gameBackend } from '@/games/backend';
+import { cleanupLocalGames } from '@/games/local/localGames';
+import { useSettings } from '@/system/settings';
 import { ApiError, api, setCsrfToken } from './client';
 
 /**
@@ -86,7 +90,7 @@ export const useServer = create<ServerStore>()((set, get) => ({
   loadGames: async () => {
     set({ gamesState: get().games.length ? 'ready' : 'loading', gamesError: null });
     try {
-      const { games } = await api.games();
+      const games = await gameBackend.list();
       set({ games, gamesState: 'ready', status: 'online' });
     } catch (error) {
       const code = error instanceof ApiError ? error.code : 'internal_error';
@@ -96,7 +100,7 @@ export const useServer = create<ServerStore>()((set, get) => ({
 
   loadStorage: async () => {
     try {
-      set({ storage: await api.storage() });
+      set({ storage: await gameBackend.storage() });
     } catch {
       /* Anzeige bleibt leer */
     }
@@ -115,8 +119,46 @@ export function canReadLibrary(state: Pick<ServerStore, 'health' | 'session'>): 
 
 let pollTimer: number | null = null;
 
-/** Startet die regelmäßige Prüfung der Servererreichbarkeit. */
+function localHealth(hostSetting: string): HealthResponse {
+  const host = normalizeGameHost(hostSetting);
+  return {
+    status: 'ok',
+    version: RENOS_VERSION,
+    time: new Date().toISOString(),
+    gameOrigin: host.ok ? host.origin : '',
+    ownerConfigured: true,
+    publicLibrary: true,
+    // 0 = kein festes Limit; begrenzt wird durch den freien Speicher des Geräts.
+    limits: { maxUploadBytes: 0, maxUncompressedBytes: 0, maxArchiveEntries: 200_000, maxCoverBytes: 8 * 1024 * 1024 },
+  };
+}
+
+/**
+ * Lokaler Modus: Es gibt keinen Server. Spiele liegen auf diesem Gerät, eine Anmeldung ist nicht nötig
+ * (es gibt nichts, was Fremde verwalten könnten).
+ */
+function startLocalMode(): () => void {
+  const apply = () =>
+    useServer.setState({
+      status: 'online',
+      health: localHealth(useSettings.getState().gameHostUrl),
+      session: { authenticated: true, ownerConfigured: true, csrfToken: null, expiresAt: null },
+    });
+  apply();
+  void cleanupLocalGames().then(() => useServer.getState().loadGames());
+  let previous = useSettings.getState().gameHostUrl;
+  const unsubscribe = useSettings.subscribe((state) => {
+    if (state.gameHostUrl === previous) return;
+    previous = state.gameHostUrl;
+    apply();
+    void useServer.getState().loadGames();
+  });
+  return unsubscribe;
+}
+
+/** Startet die Verbindung zum Spiele-Backend (Server-Überwachung bzw. lokaler Modus). */
 export function startServerMonitor(): () => void {
+  if (IS_LOCAL) return startLocalMode();
   const store = useServer.getState();
   const check = async () => {
     const wasOnline = useServer.getState().status === 'online';

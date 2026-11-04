@@ -8,6 +8,8 @@ import { downloadBlob, pickFiles } from '@/lib/download';
 import { formatBytes } from '@/lib/format';
 import { browserName, displayModeLabel, hasFinePointer, hasHover, isStandalone } from '@/lib/platform';
 import { useServer } from '@/api/server';
+import { IS_LOCAL } from '@/config';
+import { gameHostUrl, verifyGameHost, type HostCheck } from '@/games/gameHost';
 import { db, kvSet } from '@/persistence/db';
 import { createBackup, restoreBackup, wipeLocalData } from '@/persistence/backup';
 import { HOME_ID, SPECIAL_FOLDERS, deleteNodes, listChildren, usage } from '@/persistence/fs';
@@ -25,6 +27,7 @@ import { Button } from '@/ui/Button';
 import { Kbd, Notice } from '@/ui/Feedback';
 import { Segmented, Switch, TextInput } from '@/ui/Form';
 import { LoginForm } from '@/ui/LoginForm';
+import { asset } from '@/config';
 
 // ---------------------------------------------------------------------------
 // Bausteine
@@ -480,8 +483,119 @@ export function StorageSection() {
 // Spiele & Server
 // ---------------------------------------------------------------------------
 
-export function GamesSection() {
+const HOST_REASONS: Record<Exclude<HostCheck, { ok: true }>['reason'], string> = {
+  empty: 'Bitte eine Adresse eingeben.',
+  invalid: 'Das ist keine gültige Adresse.',
+  insecure: 'Der Spiele-Host muss über HTTPS erreichbar sein.',
+  'same-origin': 'Der Spiele-Host darf nicht dieselbe Adresse wie RenOS haben – sonst liefen Spiele mit den Rechten von RenOS.',
+  unreachable: 'Unter dieser Adresse ist nichts erreichbar (offline oder falsche Adresse).',
+  'not-a-host': 'Unter dieser Adresse liegt kein RenOS-Spiele-Host.',
+};
+
+/** Spiele-Einstellungen im lokalen Modus (RenOS ohne Server, z. B. auf GitHub Pages). */
+function LocalGamesSection() {
   const s = useSettings();
+  const storage = useServer((st) => st.storage);
+  const loadStorage = useServer((st) => st.loadStorage);
+  const [draft, setDraft] = useState(s.gameHostUrl);
+  const [check, setCheck] = useState<HostCheck | 'checking' | null>(null);
+  const [persisted, setPersisted] = useState<boolean | null>(null);
+  useEffect(() => {
+    void loadStorage();
+    void navigator.storage?.persisted?.().then(setPersisted);
+  }, [loadStorage]);
+
+  const save = async () => {
+    setCheck('checking');
+    const result = await verifyGameHost(draft);
+    setCheck(result);
+    if (result.ok) {
+      s.set('gameHostUrl', gameHostUrl(draft) ?? draft);
+      notify({ kind: 'success', title: 'Spiele-Host verbunden.', transient: true });
+    }
+  };
+
+  return (
+    <>
+      <Group
+        title="Spiele-Host"
+        description="Spiele laufen aus Sicherheitsgründen auf einer zweiten Adresse (eigener Origin). Dort liegen nur wenige statische Dateien – die Spiele selbst bleiben auf diesem iPad."
+      >
+        <div className="flex flex-col gap-2 p-4">
+          <div className="flex gap-2">
+            <TextInput
+              value={draft}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                setCheck(null);
+              }}
+              placeholder="https://dein-name-games.github.io/Midiplace-community/renos-games/"
+              aria-label="Adresse des Spiele-Hosts"
+              data-testid="gamehost-input"
+            />
+            <Button onClick={() => void save()} loading={check === 'checking'} data-testid="gamehost-save">
+              Prüfen &amp; speichern
+            </Button>
+          </div>
+          {check && check !== 'checking' ? (
+            check.ok ? (
+              <p className="text-sm text-success">Spiele-Host gefunden und gespeichert.</p>
+            ) : (
+              <p className="text-sm text-danger">{HOST_REASONS[check.reason]}</p>
+            )
+          ) : gameHostUrl(s.gameHostUrl) ? (
+            <p className="text-sm text-fg-subtle">Aktuell: {gameHostUrl(s.gameHostUrl)}</p>
+          ) : (
+            <p className="text-sm text-warning">Noch kein Spiele-Host eingerichtet – Anleitung in der README („RenOS auf GitHub“).</p>
+          )}
+        </div>
+      </Group>
+      <Group title="Speicher auf diesem iPad">
+        <Row label="Installierte Spiele" hint={storage ? `${storage.gamesCount} Spiel(e)` : undefined}>
+          <span className="text-sm text-fg-muted">{storage ? formatBytes(storage.gamesBytes) : '–'}</span>
+        </Row>
+        <Row label="Noch verfügbar für RenOS" hint="Schätzung von iPadOS. Installierte Web-Apps dürfen bis zu etwa 60 % des Gerätespeichers nutzen.">
+          <span className="text-sm text-fg-muted">{storage?.diskFreeBytes != null ? formatBytes(storage.diskFreeBytes) : '–'}</span>
+        </Row>
+        <Row
+          label="Dauerhafter Speicher"
+          hint={persisted ? 'Gewährt: iPadOS entfernt Spiele und Daten nicht automatisch.' : 'Nicht gewährt: Bei Speicherknappheit könnte iPadOS Daten entfernen. RenOS als Web-App vom Home-Bildschirm starten und erneut anfordern.'}
+        >
+          {persisted ? (
+            <span className="text-sm text-success">Aktiv</span>
+          ) : (
+            <Button size="sm" onClick={() => void requestPersistentStorage().then((v) => setPersisted(v))}>
+              Anfordern
+            </Button>
+          )}
+        </Row>
+      </Group>
+      <PlayerOptions />
+    </>
+  );
+}
+
+function PlayerOptions() {
+  const s = useSettings();
+  return (
+    <>
+      <Group title="Player">
+        <ToggleRow label="Spiele im immersiven Modus starten" hint="Das Spiel füllt den ganzen Bildschirm; Systemleiste und Dock werden ausgeblendet." checked={s.playerImmersive} onChange={(v) => s.set('playerImmersive', v)} />
+        <ToggleRow label="Spielsteuerung automatisch ausblenden" hint="Die Leiste erscheint, wenn der Zeiger den oberen Rand erreicht oder der Griff angetippt wird." checked={s.playerAutohideControls} onChange={(v) => s.set('playerAutohideControls', v)} />
+      </Group>
+      <Notice className="text-sm">
+        <strong className="text-fg">{t.library.savesTitle}:</strong> {t.library.savesText} Spielstände liegen im Speicher des Spiele-Origins und werden von
+        der RenOS-Sicherung nicht erfasst.
+      </Notice>
+    </>
+  );
+}
+
+export function GamesSection() {
+  return IS_LOCAL ? <LocalGamesSection /> : <ServerGamesSection />;
+}
+
+function ServerGamesSection() {
   const server = useServer(useShallow((st) => ({ status: st.status, health: st.health, session: st.session, logout: st.logout, refreshHealth: st.refreshHealth, refreshSession: st.refreshSession })));
   return (
     <>
@@ -519,14 +633,7 @@ export function GamesSection() {
           <LoginForm compact />
         </div>
       ) : null}
-      <Group title="Player">
-        <ToggleRow label="Spiele im immersiven Modus starten" hint="Das Spiel füllt den ganzen Bildschirm; Systemleiste und Dock werden ausgeblendet." checked={s.playerImmersive} onChange={(v) => s.set('playerImmersive', v)} />
-        <ToggleRow label="Spielsteuerung automatisch ausblenden" hint="Die Leiste erscheint, wenn der Zeiger den oberen Rand erreicht oder der Griff angetippt wird." checked={s.playerAutohideControls} onChange={(v) => s.set('playerAutohideControls', v)} />
-      </Group>
-      <Notice className="text-sm">
-        <strong className="text-fg">{t.library.savesTitle}:</strong> {t.library.savesText} Spielstände liegen im Speicher des Spiele-Origins und werden von
-        der RenOS-Sicherung nicht erfasst.
-      </Notice>
+      <PlayerOptions />
     </>
   );
 }
@@ -583,7 +690,7 @@ export function AboutSection() {
   return (
     <>
       <div className="mb-6 flex items-center gap-4">
-        <img src="/icons/icon-192.png" alt="" className="h-16 w-16" />
+        <img src={asset('icons/icon-192.png')} alt="" className="h-16 w-16" />
         <div>
           <div className="text-lg font-semibold">RenOS</div>
           <div className="text-sm text-fg-muted">Version {RENOS_VERSION} · {isStandalone() ? 'installiert' : 'im Browser'}</div>

@@ -1,6 +1,7 @@
 import { t } from '@/i18n';
 import type { AppId } from './appIds';
 import type { Size } from './geometry';
+import { asset } from '@/config';
 
 /** Metadaten der Systemanwendungen (ohne React-Komponenten, damit der Window Manager testbar bleibt). */
 export interface AppMeta {
@@ -20,7 +21,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'files',
     name: t.apps.files.name,
     description: t.apps.files.description,
-    icon: '/icons/apps/files.png',
+    icon: asset('icons/apps/files.png'),
     keywords: ['dateien', 'ordner', 'dateimanager', 'files', 'finder', 'import', 'export'],
     defaultSize: { w: 860, h: 560 },
     minSize: { w: 520, h: 340 },
@@ -31,7 +32,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'library',
     name: t.apps.library.name,
     description: t.apps.library.description,
-    icon: '/icons/apps/library.png',
+    icon: asset('icons/apps/library.png'),
     keywords: ['spiele', 'bibliothek', 'library', 'renpy', 'games', 'visual novel'],
     defaultSize: { w: 980, h: 620 },
     minSize: { w: 600, h: 400 },
@@ -42,7 +43,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'installer',
     name: t.apps.installer.name,
     description: t.apps.installer.description,
-    icon: '/icons/apps/installer.png',
+    icon: asset('icons/apps/installer.png'),
     keywords: ['installieren', 'installer', 'zip', 'web-build', 'hinzufügen', 'upload'],
     defaultSize: { w: 680, h: 600 },
     minSize: { w: 480, h: 420 },
@@ -53,7 +54,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'notes',
     name: t.apps.notes.name,
     description: t.apps.notes.description,
-    icon: '/icons/apps/notes.png',
+    icon: asset('icons/apps/notes.png'),
     keywords: ['notizen', 'notes', 'text', 'schreiben', 'editor'],
     defaultSize: { w: 820, h: 540 },
     minSize: { w: 460, h: 320 },
@@ -64,7 +65,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'terminal',
     name: t.apps.terminal.name,
     description: t.apps.terminal.description,
-    icon: '/icons/apps/terminal.png',
+    icon: asset('icons/apps/terminal.png'),
     keywords: ['terminal', 'konsole', 'shell', 'kommandozeile', 'befehle'],
     defaultSize: { w: 720, h: 440 },
     minSize: { w: 420, h: 240 },
@@ -75,7 +76,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'settings',
     name: t.apps.settings.name,
     description: t.apps.settings.description,
-    icon: '/icons/apps/settings.png',
+    icon: asset('icons/apps/settings.png'),
     keywords: ['einstellungen', 'settings', 'hintergrund', 'dock', 'akzent', 'system', 'speicher'],
     defaultSize: { w: 860, h: 600 },
     minSize: { w: 560, h: 400 },
@@ -86,7 +87,7 @@ export const APP_META: Record<AppId, AppMeta> = {
     id: 'player',
     name: t.apps.player.name,
     description: t.apps.player.description,
-    icon: '/icons/apps/web.png',
+    icon: asset('icons/apps/web.png'),
     keywords: [],
     defaultSize: { w: 1024, h: 640 },
     minSize: { w: 480, h: 320 },
