@@ -358,6 +358,9 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         expect(await exec(frame, "result = renpy.has_label('start') and renpy.has_label('rightaway')")).toBe(true);
         // Ersatz für das Browser-Modul „js“, das manche Spiele importieren.
         expect(await exec(frame, "import js; result = bool(js.window.alert('x')) or str(js.document.title)")).toBe('');
+        expect(
+          await exec(frame, "import pyodide; from pyodide.ffi import create_proxy; import pyodide.http as h; result = str(bool(create_proxy(1))) + str(h.pyfetch)"),
+        ).toBe('False');
         // Bilder aus images.rpa und lose Musik sind bekannt und werden aus dem iPad-Speicher nachgeladen – byte-genau.
         expect(await exec(frame, "result = renpy.loadable('images/bg club.jpg') and renpy.loadable('illurock.opus')")).toBe(true);
         await exec(frame, "renpy.webloader.enqueue('images/bg club.jpg', 'image', 'images/bg club.jpg'); renpy.webloader.enqueue('illurock.opus', 'music', None); result = True");
