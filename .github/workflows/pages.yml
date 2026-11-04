@@ -6,9 +6,13 @@ name: Deploy to GitHub Pages
 #   /renos-games/    → statischer Spiele-Host. Muss auf einer ANDEREN Adresse laufen als RenOS –
 #                      dafür wird dieses Repository in eine (kostenlose) GitHub-Organisation geforkt,
 #                      deren Pages-Adresse dann als Spiele-Host dient (siehe renos/README.md).
+#
+# GitHub erlaubt das Veröffentlichen standardmäßig nur vom Standard-Branch (Umgebung
+# „github-pages“). Deshalb baut dieser Workflow nur dort; Feature-Branches werden über einen
+# Pull Request gemergt.
 on:
   push:
-    branches: [claude/midiplace-prototype, claude/renos-desktop-os-bvdtya, main, master]
+    branches: [claude/midiplace-prototype, main, master]
   workflow_dispatch:
 
 permissions:

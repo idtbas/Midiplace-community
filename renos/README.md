@@ -29,7 +29,12 @@ GitHub kann keinen dauerhaften Server betreiben, aber statische Websites (GitHub
 
 ### 1. RenOS veröffentlichen
 
-Der Workflow `.github/workflows/pages.yml` baut bei jedem Push auf `claude/midiplace-prototype` (Standard-Branch) und auf dem RenOS-Branch automatisch:
+GitHub Pages veröffentlicht nur vom **Standard-Branch** (`claude/midiplace-prototype`); andere Branches blockiert die Umgebung „github-pages“. RenOS muss deshalb einmal dorthin gemergt werden:
+
+1. github.com → Repository → **Pull requests** → **New pull request**.
+2. **base:** `claude/midiplace-prototype`, **compare:** `claude/renos-desktop-os-bvdtya` → **Create pull request** → **Merge pull request**.
+
+Danach baut `.github/workflows/pages.yml` bei jedem Push auf den Standard-Branch automatisch:
 
 - `https://<dein-name>.github.io/Midiplace-community/renos/` – RenOS
 - `https://<dein-name>.github.io/Midiplace-community/renos-games/` – Spiele-Host (wird nur im Fork genutzt, siehe Schritt 3)
@@ -47,7 +52,7 @@ Midiplace bleibt unverändert unter `https://<dein-name>.github.io/Midiplace-com
 Spiele enthalten fremdes JavaScript. Damit sie nie mit den Rechten von RenOS laufen, braucht der Spiele-Host eine **zweite Adresse**. Auf GitHub bekommt man die mit einer kostenlosen Organisation:
 
 1. github.com → Profilbild → **Your organizations** → **New organization** → **Free**. Name z. B. `<dein-name>-games`.
-2. Dieses Repository öffnen → **Fork** → als Owner die neue Organisation wählen → **Create fork**.
+2. Dieses Repository öffnen → **Fork** → als Owner die neue Organisation wählen → **Create fork**. (Erst nach Schritt 1 forken: Der Fork übernimmt nur den Standard-Branch.)
 3. Im Fork: **Settings → Pages → Source: GitHub Actions**.
 4. Im Fork: **Actions** → Workflows aktivieren → „Deploy to GitHub Pages“ → **Run workflow**.
 5. Die Adresse lautet dann `https://<dein-name>-games.github.io/Midiplace-community/renos-games/`.
