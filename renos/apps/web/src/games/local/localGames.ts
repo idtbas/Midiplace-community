@@ -32,6 +32,7 @@ type Pending = {
   reject: (error: unknown) => void;
   onProgress?: (bytes: number, files: number) => void;
   onStage?: (done: number, total: number) => void;
+  onLog?: (text: string) => void;
 };
 
 /** Basisadresse der Ren'Py-Laufzeitpakete auf der RenOS-Website. */
@@ -49,6 +50,10 @@ function getWorker(): Worker {
     if (!entry) return;
     if (msg.type === 'progress') {
       entry.onProgress?.(msg.bytesWritten, msg.filesWritten);
+      return;
+    }
+    if (msg.type === 'log') {
+      entry.onLog?.(msg.text);
       return;
     }
     if (msg.type === 'stage') {
@@ -74,11 +79,11 @@ function getWorker(): Worker {
 
 type CallRequest = WorkerRequest extends infer R ? (R extends { type: 'analyze' | 'install' | 'convert' | 'runtime' } ? Omit<R, 'id'> : never) : never;
 
-function call(request: CallRequest, onProgress?: Pending['onProgress'], onStage?: Pending['onStage']) {
+function call(request: CallRequest, onProgress?: Pending['onProgress'], onStage?: Pending['onStage'], onLog?: Pending['onLog']) {
   seq += 1;
   const id = seq;
   const promise = new Promise<WorkerResponse>((resolve, reject) => {
-    pending.set(id, { resolve, reject, onProgress, onStage });
+    pending.set(id, { resolve, reject, onProgress, onStage, onLog });
     getWorker().postMessage({ ...request, id } as WorkerRequest);
   });
   return { id, promise };
@@ -407,6 +412,7 @@ export function installConvertedGame(
   title: string,
   hostUrl: string,
   onProgress: (phase: ConvertPhase, done: number, total: number) => void,
+  onLog: (text: string) => void = () => undefined,
 ): ConvertHandle {
   const gameId = randomGameId();
   let workerId = 0;
@@ -422,6 +428,7 @@ export function installConvertedGame(
     await requestPersistentStorage();
     if (cancelled) throw new ApiError('aborted', 0);
 
+    onLog(`Ren’Py-Laufzeit ${runtime.version} (${runtime.installed ? 'bereits auf dem iPad' : 'wird geladen'})`);
     if (!runtime.installed) {
       const job = call({ type: 'runtime', runtimeId: runtime.id, baseUrl: RUNTIME_BASE_URL() }, (bytes, total) => onProgress('runtime', bytes, total));
       workerId = job.id;
@@ -435,6 +442,7 @@ export function installConvertedGame(
       { type: 'convert', file, gameId, root: conversion.root, title: sanitizeTitle(title, analysis.detectedTitle ?? 'Unbenanntes Spiel'), runtimeId: runtime.id, limits: LOCAL_LIMITS },
       (bytes) => onProgress('convert', bytes, total),
       (done, count) => onProgress('scan', done, count),
+      onLog,
     );
     workerId = job.id;
     const result = await job.promise;

@@ -6,6 +6,7 @@
  * UTF-8-, Info-ZIP-Unicode- und CP437-Dateinamen, „stored“ und „deflate“.
  */
 
+import { Inflate } from 'fflate';
 import { crc32 } from './crc32';
 
 export interface ZipEntry {
@@ -193,52 +194,27 @@ const CHUNK = 4 * 1024 * 1024;
 export const CRC_LIMIT = 256 * 1024 * 1024;
 
 /**
- * Liest einen Byte-Bereich einer Datei in Abschnitten.
- *
- * Wenn möglich mit einem BYOB-Reader in einen einzigen, wiederverwendeten Puffer: Bei Gigabyte-Archiven
- * wächst der Arbeitsspeicher so kaum (gemessen: +87 MB statt +1 GB bei 3,2 GB). Sonst in 4-MB-Abschnitten.
- * Die gelieferte Ansicht ist nur bis zum nächsten Schritt gültig – sie muss sofort verarbeitet werden.
+ * Liest einen Byte-Bereich einer Datei in Abschnitten – bewusst nur mit `slice().arrayBuffer()`.
+ * Streams (`blob.stream()`, BYOB-Reader) sind in Safari bei Gigabyte-Dateien unzuverlässig und
+ * konnten die Installation anhalten. Jeder Abschnitt ist ein eigener Puffer.
  */
-export async function* readRange(blob: Blob, start: number, length: number, reuse = true): AsyncGenerator<Uint8Array> {
-  const part = blob.slice(start, start + length);
-  let reader: ReadableStreamBYOBReader | null = null;
-  if (reuse) {
-    try {
-      reader = (part.stream() as ReadableStream<Uint8Array>).getReader({ mode: 'byob' });
-    } catch {
-      reader = null;
-    }
-  }
-  if (reader) {
-    let buffer = new ArrayBuffer(Math.min(CHUNK, Math.max(length, 1)));
-    try {
-      for (;;) {
-        const { done, value } = await reader.read(new Uint8Array(buffer));
-        if (done || !value) break;
-        yield value;
-        buffer = value.buffer as ArrayBuffer;
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    return;
-  }
+export async function* readRange(blob: Blob, start: number, length: number, _reuse = true): AsyncGenerator<Uint8Array> {
   for (let offset = 0; offset < length; offset += CHUNK) {
-    yield new Uint8Array(await part.slice(offset, Math.min(offset + CHUNK, length)).arrayBuffer());
+    const end = Math.min(offset + CHUNK, length);
+    yield new Uint8Array(await blob.slice(start + offset, start + end).arrayBuffer());
   }
 }
 
 /**
- * Liefert den entpackten Inhalt eines Eintrags abschnittsweise. Größe und CRC32 werden dabei geprüft –
- * gefälschte Angaben (Zip-Bombs) oder beschädigte Daten brechen den Vorgang ab.
+ * Liefert den entpackten Inhalt eines Eintrags abschnittsweise. Die Größe wird immer geprüft
+ * (gefälschte Angaben/Zip-Bombs brechen ab), die Prüfsumme bis 256 MB.
+ * Deflate wird mit fflate (reines JavaScript) entpackt – ohne Browser-Streams, die in Safari hängen können.
  */
 export async function* readEntryChunks(blob: Blob, entry: ZipEntry): AsyncGenerator<Uint8Array> {
   const start = await entryDataStart(blob, entry);
   const expected = entry.uncompressedSize;
   let total = 0;
   let crc = 0;
-  // Gröber bei sehr großen Dateien: Größe wird immer geprüft, die Prüfsumme nur bis 256 MB
-  // (spart auf dem iPad bei Gigabyte-Archiven viel Zeit).
   const verifyCrc = expected <= CRC_LIMIT;
   const check = (chunk: Uint8Array) => {
     total += chunk.byteLength;
@@ -252,35 +228,27 @@ export async function* readEntryChunks(blob: Blob, entry: ZipEntry): AsyncGenera
       yield chunk;
     }
   } else if (entry.method === 8) {
-    const inflate = new DecompressionStream('deflate-raw') as unknown as TransformStream<Uint8Array, Uint8Array>;
-    const writer = inflate.writable.getWriter();
-    const reader = inflate.readable.getReader();
-    // Eingabe parallel einspeisen; die Ausgabe wird im Takt der Verarbeitung gelesen (Gegendruck).
-    const feeding = (async () => {
+    const out: Uint8Array[] = [];
+    let failed: unknown = null;
+    const inflate = new Inflate((data) => {
+      out.push(data);
+    });
+    const compressed = entry.compressedSize;
+    for (let offset = 0; offset < compressed || offset === 0; offset += CHUNK) {
+      const end = Math.min(offset + CHUNK, compressed);
+      const input = new Uint8Array(await blob.slice(start + offset, start + end).arrayBuffer());
       try {
-        for await (const chunk of readRange(blob, start, entry.compressedSize, false)) await writer.write(chunk);
-        await writer.close();
+        inflate.push(input, end >= compressed);
       } catch (error) {
-        await writer.abort(error).catch(() => undefined);
+        failed = error;
       }
-    })();
-    let finished = false;
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        check(value);
-        yield value;
+      if (failed) throw new ZipFormatError('invalid deflate data');
+      while (out.length) {
+        const chunk = out.shift()!;
+        check(chunk);
+        yield chunk;
       }
-      finished = true;
-    } catch (error) {
-      if (error instanceof ZipFormatError) throw error;
-      throw new ZipFormatError('invalid deflate data');
-    } finally {
-      // Bei vorzeitigem Abbruch den Dekompressor beenden, sonst bliebe das Einspeisen am Gegendruck hängen.
-      if (!finished) await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-      await feeding;
+      if (end >= compressed) break;
     }
   } else {
     throw new ZipFormatError('unsupported compression');
