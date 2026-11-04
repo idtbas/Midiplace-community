@@ -152,7 +152,7 @@ async function describeConversion(file: File, analysis: ArchiveAnalysis, accepte
     .filter((p) => p && !/^(contents|resources|autorun)$/i.test(p))
     .map((p) => p.replace(/\.app$/i, ''))[0];
   const cleaned = (fromFolder ?? '')
-    .replace(/[-_ ]?(\d+(\.\d+)*[a-z]?)?[-_ ]?(pc|win|windows|linux|mac|market|dists?)?$/i, '')
+    .replace(/[-_ ]?(\d+(\.\d+)*[a-z]?)?[-_ ]?(pc|win|windows|linux|mac|market|dists?)?([-_ ]?(arm|arm64|x86_64|universal))?$/i, '')
     .replace(/[-_]+/g, ' ')
     // „TheQuestion“ → „The Question“ (Ordnernamen von Ren'Py-Builds sind oft zusammengeschrieben).
     .replace(/([a-z])([A-Z])/g, '$1 $2')
