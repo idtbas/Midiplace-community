@@ -13,3 +13,7 @@ e2e/fixtures/generated/
 coverage/
 deploy/renos.env
 dist-local/
+
+# Python-Bytecode (beim Prüfen der Spiel-Module erzeugt)
+__pycache__/
+*.pyc
