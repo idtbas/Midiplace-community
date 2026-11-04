@@ -379,7 +379,11 @@ test.describe('Lokaler Modus (ohne Server)', () => {
       await library.getByTestId('game-saves-copy').click();
       await page.getByRole('menuitem', { name: /RenOS Testspiel/ }).click();
       await page.getByRole('alertdialog').getByRole('button', { name: 'Spielstände übernehmen' }).click();
-      await expect(library.getByTestId('game-saves-count')).toHaveText(sourceCount!);
+      // Gleiche Anzahl Dateien. (Die Größe nicht vergleichen: Ren’Py schreibt „persistent“ beim Beenden
+      // eventuell noch einmal, die gerundete KB-Angabe kann sich dadurch um eins unterscheiden.)
+      const files = /^\d+ Dateien?/.exec(sourceCount ?? '')?.[0];
+      expect(files).toBeTruthy();
+      await expect(library.getByTestId('game-saves-count')).toContainText(files!);
     });
 
     test('eingebauter Spiele-Host: startet ein installiertes Spiel auch offline', async ({ page, context }) => {

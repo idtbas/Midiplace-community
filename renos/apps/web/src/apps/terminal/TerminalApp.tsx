@@ -103,12 +103,25 @@ export default function TerminalApp({ windowId, payload }: AppProps) {
     setLines((prev) => [...prev, ...newLines].slice(-MAX_LINES));
   }, []);
 
-  const prompt = (): Segment[] => [
+  const prompt = (label = cwdLabel): Segment[] => [
     { text: `${userName}@renos`, tone: 'accent' },
     { text: ':', tone: 'muted' },
-    { text: cwdLabel, tone: 'dir' },
+    { text: label, tone: 'dir' },
     { text: '$ ', tone: 'muted' },
   ];
+
+  // Aktuelles Verzeichnis auch für vorausgetippte Befehle (die vor dem nächsten Rendern laufen).
+  const cwdRef = useRef(cwdId);
+  cwdRef.current = cwdId;
+  const setCwd = (id: string) => {
+    cwdRef.current = id;
+    setCwdId(id);
+  };
+  const labelOf = async (id: string) => {
+    const chain = await getAncestors(id);
+    const names = chain.slice(1).map((n) => n.name);
+    return names.length ? `~/${names.join('/')}` : '~';
+  };
 
   const loadGames: TerminalContext['loadGames'] = async () => {
     const server = useServer.getState();
@@ -120,7 +133,8 @@ export default function TerminalApp({ windowId, payload }: AppProps) {
   };
 
   const execute = async (raw: string) => {
-    print([...prompt(), { text: raw }]);
+    const cwd = cwdRef.current;
+    print([...prompt(cwd === cwdId ? cwdLabel : await labelOf(cwd)), { text: raw }]);
     const trimmed = raw.trim();
     if (!trimmed) return;
     history.current = [...history.current.filter((h) => h !== trimmed), trimmed].slice(-200);
@@ -137,8 +151,8 @@ export default function TerminalApp({ windowId, payload }: AppProps) {
     const command = findCommand(name);
     if (!command) return print(t.terminal.notFound(name), 'error');
     const ctx: TerminalContext = {
-      cwdId,
-      setCwd: setCwdId,
+      cwdId: cwd,
+      setCwd,
       userName,
       accent,
       print,
@@ -149,12 +163,26 @@ export default function TerminalApp({ windowId, payload }: AppProps) {
       loadGames,
       sessionStart: SESSION_START,
     };
-    setBusy(true);
     try {
       await command.run(args, ctx);
     } catch (error) {
       print(`${name}: ${(error as Error).message || 'Fehler'}`, 'error');
+    }
+  };
+
+  // Befehle laufen nacheinander; was während eines laufenden Befehls eingegeben wird, wartet (wie in
+  // einer echten Shell) und geht nicht verloren.
+  const queue = useRef<string[]>([]);
+  const draining = useRef(false);
+  const submit = async (raw: string) => {
+    queue.current.push(raw);
+    if (draining.current) return;
+    draining.current = true;
+    setBusy(true);
+    try {
+      for (let next = queue.current.shift(); next !== undefined; next = queue.current.shift()) await execute(next);
     } finally {
+      draining.current = false;
       setBusy(false);
     }
   };
@@ -164,11 +192,10 @@ export default function TerminalApp({ windowId, payload }: AppProps) {
   const onKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (busy) return;
       const value = input;
       setInput('');
       setCaret(0);
-      await execute(value);
+      await submit(value);
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const list = history.current;
