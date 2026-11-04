@@ -175,6 +175,12 @@ export const PLACEHOLDER_PNG = Uint8Array.from([
 ]);
 
 /**
+ * Kennzeichen der Platzhalter: privater, ignorierbarer PNG-Abschnitt direkt nach IHDR (Byte 37–40).
+ * Ren'Py erkennt daran, dass am Pfad noch nicht das echte Bild liegt.
+ */
+export const PLACEHOLDER_MARKER = 'rnOs';
+
+/**
  * Transparentes PNG in der Größe w×h (Palette mit 1 Bit, durchsichtig) – stark komprimiert, meist wenige
  * hundert Bytes. Dient als Platzhalter mit den echten Maßen eines nachgeladenen Bildes.
  */
@@ -197,6 +203,7 @@ export function placeholderPng(w: number, h: number): Uint8Array {
   const parts = [
     Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
+    chunk(PLACEHOLDER_MARKER, new Uint8Array(0)),
     chunk('PLTE', Uint8Array.from([0, 0, 0])),
     chunk('tRNS', Uint8Array.from([0])),
     chunk('IDAT', zlibSync(raw, { level: 9 })),

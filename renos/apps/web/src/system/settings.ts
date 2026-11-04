@@ -59,6 +59,10 @@ export interface Settings {
   theme: 'dark' | 'light' | 'system';
   /** Inhalt des Ordners „Schreibtisch“ als Symbole auf dem Schreibtisch zeigen. */
   desktopIcons: boolean;
+  /** Optionaler eigener Weiterleitungsdienst für Downloads von Seiten ohne CORS (leer = keiner). */
+  downloadProxy: string;
+  /** Startseite des Browsers. */
+  browserHome: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -93,6 +97,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autoLockMinutes: 0,
   theme: 'dark',
   desktopIcons: true,
+  downloadProxy: '',
+  browserHome: '',
 };
 
 interface SettingsStore extends Settings {
@@ -133,6 +139,8 @@ export const useSettings = create<SettingsStore>()(
         if (![0, 1, 2, 5, 10, 15, 30, 60].includes(merged.autoLockMinutes)) merged.autoLockMinutes = 0;
         if (!['dark', 'light', 'system'].includes(merged.theme)) merged.theme = 'dark';
         if (typeof merged.desktopIcons !== 'boolean') merged.desktopIcons = true;
+        if (typeof merged.downloadProxy !== 'string' || (merged.downloadProxy && !/^https:\/\/[^\s]+$/.test(merged.downloadProxy))) merged.downloadProxy = '';
+        if (typeof merged.browserHome !== 'string' || merged.browserHome.length > 2000) merged.browserHome = '';
         if (typeof merged.userName !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(merged.userName)) merged.userName = DEFAULT_SETTINGS.userName;
         return merged;
       },

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CircleX, FileArchive, HardDrive, Library, Play, UploadCloud } from 'lucide-react';
+import { CheckCircle2, CircleX, FileArchive, FolderOpen, HardDrive, Library, Play, UploadCloud } from 'lucide-react';
 import type { ArchiveAnalysis, Game } from '@renos/shared';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
 import { pickFiles } from '@/lib/download';
+import { pickRenosFiles } from '@/system/filePicker';
 import { formatBytes } from '@/lib/format';
 import { ApiError, errorMessage } from '@/api/client';
 import { useServer } from '@/api/server';
@@ -193,6 +194,20 @@ export function LocalInstaller({ payload }: AppProps) {
             }
           >
             {t.installer.choose}
+          </Button>
+          <Button
+            variant="ghost"
+            className="mt-2"
+            icon={FolderOpen}
+            data-testid="installer-from-files"
+            onClick={() =>
+              void pickRenosFiles({ title: 'Spiel aus Files installieren', subtitle: 'ZIP-Archiv wählen (z. B. aus Downloads)', patterns: ['*.zip'] }).then((files) => {
+                const file = files?.[0];
+                if (file) void start(file);
+              })
+            }
+          >
+            Aus Files wählen …
           </Button>
           <p className="mt-2 text-base text-fg-muted">{t.installer.drop}</p>
           <p className="mt-4 flex items-center gap-1.5 text-sm text-fg-subtle">

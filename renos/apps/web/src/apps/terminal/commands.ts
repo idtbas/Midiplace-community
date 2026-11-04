@@ -21,7 +21,7 @@ import {
   usage,
 } from '@/persistence/fs';
 import { CalcError, evaluate, formatResult } from '@/lib/calc';
-import { openFilesAt } from '@/system/actions';
+import { openApp, openFilesAt } from '@/system/actions';
 import { openFileWith } from '@/system/fileTypes';
 import { useSession } from '@/system/session';
 import { useWindows } from '@/system/windows';
@@ -82,6 +82,8 @@ const APP_ALIASES: Record<string, AppId> = {
   uhr: 'clock',
   monitor: 'monitor',
   systemmonitor: 'monitor',
+  browser: 'browser',
+  internet: 'browser',
 };
 
 /** Teilt „ordner/name“ in den übergeordneten Pfad und den letzten Namen. */
@@ -432,6 +434,11 @@ export const COMMANDS: Command[] = [
       if (app) {
         ctx.openApp(app);
         return ctx.print(`${APP_META[app].name} wird geöffnet …`, 'muted');
+      }
+      // Internetadresse → Browser von RenOS.
+      if (/^(https?:\/\/|www\.)\S+$/i.test(target)) {
+        openApp('browser', { url: target, nonce: Date.now() });
+        return ctx.print(`${target} wird im Browser geöffnet …`, 'muted');
       }
       // Datei oder Ordner (relativ zum aktuellen Ordner): in der passenden App bzw. in Files.
       const node = args.length === 1 || /[/.~]/.test(target) ? await resolvePath(args.length === 1 ? args[0]! : target, ctx.cwdId) : null;

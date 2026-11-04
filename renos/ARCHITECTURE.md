@@ -68,10 +68,13 @@ Installer ─► Worker: Analyse ─► Spielordner (…/game/), renpy/vc_versio
                archives/<n>.rpa   .rpa unverändert kopiert; Index (zlib + Pickle) gelesen
                game/<pfad>        lose Bilder/Musik/Stimmen/Videos (bei Bedarf geladen)
                game.zip           Engine (engine.zip des Pakets, Rohdaten übernommen) + Skripte, Schriften,
-                                  GUI, kleine Dateien + _placeholders/ + game/renpyweb_remote_files.txt
+                                  GUI, kleine Dateien + Platzhalter am echten Pfad jeder nachladbaren Datei
+                                  + game/renpyweb_remote_files.txt + Hilfsdateien (renos_web_support.rpy,
+                                  _renos_host.py, _renpytfd.py, Modul-Ersatz)
                index.html         Startseite der Laufzeit mit Spieltitel
                renos-web.json     Datei → Archiv-Ausschnitte für nachgeladene Archivinhalte
-Player ─► eingebauter Host ─► index.html / game.zip / Laufzeitdateien / game/<pfad> (lose oder Archiv-Ausschnitt)
+Player ─► eingebauter Host ─► index.html / game.zip (beim Start zusammengesetzt, s. u.) / Laufzeitdateien /
+                              game/<pfad> (aufbewahrte Datei, lose Datei oder Archiv-Ausschnitt)
 ```
 
 - **Grundidee:** Ein Desktop-Build enthält dieselben Spieldaten wie ein Web-Build. RenOS ersetzt nur die Engine durch die offizielle Ren’Py-Web-Laufzeit und baut die `game.zip` wie der Ren’Py-Launcher (`launcher/game/web.rpy`, `distribute.rpy`).
@@ -79,7 +82,16 @@ Player ─► eingebauter Host ─► index.html / game.zip / Laufzeitdateien / 
 - **Was sofort geladen wird:** Skripte (`.rpyc`/`.rpy`), Schriften, Daten, GUI-Grafiken (bis 160 MB), kleine Bilder (≤ 24 KB, bis 48 MB) und kurze Klänge (≤ 128 KB, bis 48 MB). **Bei Bedarf:** alle anderen Bilder (`image B,H` – Größe aus dem Dateikopf: PNG, JPEG, WebP, AVIF), Musik (`music`), Stimmen (`voice`, Pfade mit „voice“), Videos (`video`). Bilder ohne lesbare Größe werden sofort geladen. Ordner nachgeladener Dateien stehen als Einträge in der `game.zip`, damit Ren’Py sie im Speicher anlegen kann.
 - **Archive:** RPA-3.0 (XOR-Schlüssel), RPA-2.0, RPA-1.0 (`.rpi`). Der Index wird mit einem eigenen Pickle-Leser gelesen, der nur Daten kennt; Aufrufe sind bis auf `bytes()`/`_codecs.encode` (Python 3 schreibt so Bytes in Protokoll 2) verboten – ein Archiv kann keinen Code ausführen. Unsichere Pfade im Index werden verworfen. Vorrang wie in Ren’Py: lose Dateien vor Archiven, Archive in absteigender Namensfolge.
 - **Ausgelassen:** `game/cache/`, `game/saves/`, `*.rpyb`, `__pycache__`, Programme/Bibliotheken (`.exe`, `.dll`, `.so`, …), Logdateien, die Engine des Spiels (`renpy/`, `lib/`).
+- **Platzhalter am echten Pfad:** Jede nachladbare Datei hat in der `game.zip` einen Platzhalter an ihrem Pfad (Bild: transparentes PNG in echter Größe mit privatem Abschnitt `rnOs`; Audio/Video: leer). So finden Spiele sie mit `os.walk`/`glob`/`os.path.exists`. `_renos_host.py` setzt einen Loader-Rückruf vor das Dateisystem: Liegt ein Platzhalter am Pfad, folgt `DownloadNeeded` (Ren’Py lädt nach); Ren’Pys Aufräumen nach 60 s schreibt den Platzhalter zurück, statt die Datei zu löschen. `renpy.file()` liefert für noch nicht geladene Bilder den Platzhalter (für Größenabfragen), ohne Massen-Downloads auszulösen.
+- **Datei-Dialoge (`_renpytfd`):** Ersatz für tinyfiledialogs. `openFileDialog` ruft per `emscripten.run_script` `RenOSHost.pickFiles` (sandbox/runtime.js) auf; RenOS zeigt seine Dateiauswahl (`system/filePicker.tsx`), schickt die Datei per MessagePort, die Laufzeit schreibt sie nach `/tmp/renos-picked/…`. Python wartet mit `emscripten.sleep` (Ren’Py 7 nur aus der Hauptschleife möglich). `saveFileDialog` liefert einen Pfad unter `/tmp/renos-export/`; ist die Datei fertig geschrieben, landet sie in Files → Downloads.
+- **Vom Spiel angelegte Dateien (`overlay.ts`, `compose.ts`):** `_renos_host.py` vergleicht den Spielordner beim Laden der Skripte (und nach einer Dateiauswahl jede Minute) mit `renos_base.txt`/`renos_overlay.txt` und schickt neue bzw. gelöschte Dateien an RenOS (IndexedDB-Tabelle `overlay`, pro Spiel, Pfade nur unter `game/`, Größen begrenzt). Beim Start setzt RenOS die `game.zip` als Blob zusammen: Einträge der installierten Datei als Ausschnitte (keine Kopie), Reparaturen älterer Umwandlungen, aufbewahrte Skripte direkt, aufbewahrte Medien als Platzhalter plus Eintrag in `renpyweb_remote_files.txt`.
 - **Grenzen:** Spiele mit nativen Python-Modulen, Netzwerkzugriffen oder Funktionen, die die Web-Version von Ren’Py nicht kennt, laufen nicht vollständig. Archive in unbekannten Formaten werden übersprungen und gemeldet. Der Server-Modus wandelt nicht um.
+
+### Browser und Downloads (`apps/browser`, `system/downloads.ts`)
+
+- Webseiten in einem iframe (`sandbox` ohne Navigation des Hauptfensters); Adressen auf dem Origin von RenOS werden nicht geöffnet (sie bekämen dessen Rechte).
+- Downloads per `fetch` (CORS) mit Fortschritt nach Files → Downloads (≤ 512 MB). Webseiten statt Dateien: Datei-Links werden aus dem HTML gelesen und angeboten. Scheitert der direkte Weg und ist ein eigener Weiterleitungsdienst eingetragen (`tools/download-proxy/worker.js`, Cloudflare Worker, nur für den eingetragenen Origin, nur öffentliche Ziele), läuft der Download darüber; der echte Dateiname kommt aus `X-Final-Url`/`Content-Disposition`.
+- Im Server-Modus nicht verfügbar: Die CSP der Oberfläche erlaubt dort keine fremden Rahmen und Verbindungen.
 
 ### Externer Spiele-Host (optional)
 
