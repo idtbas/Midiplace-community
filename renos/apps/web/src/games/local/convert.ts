@@ -337,6 +337,19 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
   for (const [rel, entry] of loose) table.set(rel, { kind: 'loose', entry });
 
   log(`Prüfe ${table.size} Dateien (sofort laden oder bei Bedarf) …`);
+  // Quelltext weglassen, wenn die kompilierte Fassung da ist (wie in Web-/Mobil-Builds): Ren'Py lädt dann
+  // die .rpyc, statt den Quelltext neu zu übersetzen – das scheitert sonst bei Spielen mit eigener Syntax
+  // (z. B. Student Transfer) und kostet Startzeit und Speicher.
+  let droppedSources = 0;
+  for (const rel of [...table.keys()]) {
+    const lower = rel.toLowerCase();
+    if ((lower.endsWith('.rpy') && table.has(`${rel}c`)) || (lower.endsWith('.rpym') && table.has(`${rel}c`))) {
+      table.delete(rel);
+      droppedSources += 1;
+    }
+  }
+  if (droppedSources) log(`${droppedSources} Quelltexte (.rpy) ausgelassen – die kompilierten .rpyc werden verwendet`);
+
   // 4. Einteilen: sofort laden (game.zip) oder bei Bedarf.
   const classifier = new Classifier(CLASSIFY_LIMITS);
   const remote = new Map<string, string>();
