@@ -2,8 +2,12 @@ import { GAME_ID_PATTERN, detectImageType, sanitizeTitle, type ArchiveAnalysis, 
 import { ApiError } from '@/api/client';
 import { db, type LocalGame } from '@/persistence/db';
 import { requestPersistentStorage } from '@/pwa/register';
+import { asset } from '@/config';
+import type { ConvertReport, WebManifest } from './convert';
+import { chooseRuntime } from './desktop';
 import type { WorkerRequest, WorkerResponse } from './installWorker';
-import { forgetGameDirectory, listGameDirectories, readGameFile, removeGameDirectory } from './opfs';
+import { forgetGameDirectory, gameDirectory, listGameDirectories, readGameFile, removeGameDirectory } from './opfs';
+import { availableRuntimes, readInstalledRuntime, readRuntimeFile, type RuntimeSummary } from './runtimes';
 import { deleteSaves } from './saves';
 
 /**
@@ -28,6 +32,9 @@ type Pending = {
   reject: (error: unknown) => void;
   onProgress?: (bytes: number, files: number) => void;
 };
+
+/** Basisadresse der Ren'Py-Laufzeitpakete auf der RenOS-Website. */
+export const RUNTIME_BASE_URL = () => new URL(asset('runtimes/'), window.location.href).href;
 let worker: Worker | null = null;
 let seq = 0;
 const pending = new Map<number, Pending>();
@@ -43,6 +50,10 @@ function getWorker(): Worker {
       entry.onProgress?.(msg.bytesWritten, msg.filesWritten);
       return;
     }
+    if (msg.type === 'runtime-progress') {
+      entry.onProgress?.(msg.bytes, msg.total);
+      return;
+    }
     pending.delete(msg.id);
     entry.resolve(msg);
   };
@@ -56,7 +67,7 @@ function getWorker(): Worker {
   return worker;
 }
 
-type CallRequest = WorkerRequest extends infer R ? (R extends { type: 'analyze' | 'install' } ? Omit<R, 'id'> : never) : never;
+type CallRequest = WorkerRequest extends infer R ? (R extends { type: 'analyze' | 'install' | 'convert' | 'runtime' } ? Omit<R, 'id'> : never) : never;
 
 function call(request: CallRequest, onProgress?: Pending['onProgress']) {
   seq += 1;
@@ -78,6 +89,10 @@ function workerError(code: string, detail?: string): ApiError {
       return new ApiError('archive_invalid', 0, `Das Archiv konnte nicht sicher entpackt werden${detail ? ` (${detail})` : ''}.`);
     case 'storage_unavailable':
       return new ApiError('install_failed', 0, 'Der lokale Speicher ist nicht verfügbar (privater Modus oder blockierte Website-Daten).');
+    case 'runtime_unavailable':
+      return new ApiError('install_failed', 0, 'Die Ren’Py-Laufzeit konnte nicht geladen werden. Beim ersten Windows-/Linux-Spiel muss das iPad online sein.');
+    case 'runtime_corrupt':
+      return new ApiError('install_failed', 0, 'Die heruntergeladene Ren’Py-Laufzeit war beschädigt. Bitte erneut versuchen.');
     default:
       return new ApiError('install_failed', 0);
   }
@@ -218,6 +233,7 @@ async function toGame(record: LocalGame, hostUrl: string): Promise<Game> {
     sourceFileName: record.sourceFileName,
     runtime: record.runtime,
     playUrl: playUrlFor(record.id, hostUrl),
+    conversion: record.conversion ?? null,
   };
 }
 
@@ -255,6 +271,7 @@ export async function deleteLocalGame(id: string): Promise<void> {
   await db.covers.delete(id);
   await deleteSaves(id);
   forgetGameDirectory(id);
+  manifests.delete(id);
   const cached = coverUrls.get(id);
   if (cached) URL.revokeObjectURL(cached.url);
   coverUrls.delete(id);
@@ -297,10 +314,173 @@ export async function localStorageInfo(): Promise<StorageInfoResponse> {
   };
 }
 
-/** Datei eines installierten Spiels – nur für Spiele mit Datenbankeintrag. */
-export async function readInstalledGameFile(gameId: string, path: string): Promise<File | null> {
-  if (!GAME_ID_PATTERN.test(gameId) || !(await db.games.get(gameId))) return null;
+const manifests = new Map<string, Promise<{ manifest: WebManifest; archives: Map<number, Promise<File | null>> } | null>>();
+
+async function loadWebManifest(gameId: string) {
+  let cached = manifests.get(gameId);
+  if (!cached) {
+    cached = (async () => {
+      const file = await readGameFile(gameId, 'renos-web.json');
+      if (!file) return null;
+      try {
+        const manifest = JSON.parse(await file.text()) as WebManifest;
+        if (manifest.format !== 1 || !Array.isArray(manifest.archives) || typeof manifest.members !== 'object') return null;
+        return { manifest, archives: new Map<number, Promise<File | null>>() };
+      } catch {
+        return null;
+      }
+    })();
+    manifests.set(gameId, cached);
+  }
+  return cached;
+}
+
+function base64Bytes(text: string): Uint8Array<ArrayBuffer> {
+  const raw = atob(text);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Datei eines installierten Spiels – nur für Spiele mit Datenbankeintrag.
+ * Umgewandelte Spiele: Laufzeitdateien aus dem Laufzeitpaket, nachladbare Dateien aus dem Spielordner
+ * oder als Ausschnitt eines Archivs (ohne Kopie).
+ */
+export async function readInstalledGameFile(gameId: string, path: string): Promise<File | Blob | null> {
+  if (!GAME_ID_PATTERN.test(gameId)) return null;
+  const record = await db.games.get(gameId);
+  if (!record) return null;
+  if (!record.conversion) return readGameFile(gameId, path);
+
+  const runtime = await readInstalledRuntime(record.conversion.runtime);
+  if (runtime?.webFiles.includes(path)) return readRuntimeFile(runtime.id, path);
+  if (path.startsWith('game/')) {
+    const web = await loadWebManifest(gameId);
+    const member = web?.manifest.members[path.slice('game/'.length)];
+    if (web && member) {
+      const [archiveIndex, prefix, segments] = member;
+      const name = web.manifest.archives[archiveIndex];
+      if (!name) return null;
+      let archive = web.archives.get(archiveIndex);
+      if (!archive) {
+        archive = readGameFile(gameId, name);
+        web.archives.set(archiveIndex, archive);
+      }
+      const file = await archive;
+      if (!file) return null;
+      const parts: BlobPart[] = prefix ? [base64Bytes(prefix)] : [];
+      for (const [offset, length] of segments) {
+        if (offset < 0 || length < 0 || offset + length > file.size) return null;
+        parts.push(file.slice(offset, offset + length));
+      }
+      return new Blob(parts);
+    }
+  }
+  if (path === 'renos-web.json' || path.startsWith('archives/')) return null;
   return readGameFile(gameId, path);
+}
+
+// ----- Umwandlung von Windows-/Linux-/Mac-Builds -----------------------------
+
+export type ConvertPhase = 'runtime' | 'convert';
+
+export interface ConvertHandle {
+  promise: Promise<{ game: Game; report: ConvertReport; runtime: RuntimeSummary }>;
+  cancel: () => void;
+}
+
+/** Laufzeit, die für dieses Spiel verwendet würde (oder null, wenn keine verfügbar ist). */
+export async function runtimeFor(analysis: ArchiveAnalysis): Promise<(RuntimeSummary & { installed: boolean }) | null> {
+  if (!analysis.conversion) return null;
+  return chooseRuntime(await availableRuntimes(RUNTIME_BASE_URL()), analysis.conversion.python);
+}
+
+export function installConvertedGame(
+  file: File,
+  analysis: ArchiveAnalysis,
+  title: string,
+  hostUrl: string,
+  onProgress: (phase: ConvertPhase, done: number, total: number) => void,
+): ConvertHandle {
+  const gameId = randomGameId();
+  let workerId = 0;
+  let cancelled = false;
+  const promise = (async () => {
+    const conversion = analysis.conversion;
+    if (!conversion || !analysis.installable) throw new ApiError('archive_not_installable', 0);
+    const runtime = await runtimeFor(analysis);
+    if (!runtime) throw workerError('runtime_unavailable');
+    const free = await freeLocalBytes();
+    const needed = conversion.gameBytes + (runtime.installed ? 0 : runtime.totalBytes) + 64 * 1024 * 1024 + STORAGE_MARGIN;
+    if (free !== null && free < needed) throw workerError('insufficient_storage');
+    await requestPersistentStorage();
+    if (cancelled) throw new ApiError('aborted', 0);
+
+    if (!runtime.installed) {
+      const job = call({ type: 'runtime', runtimeId: runtime.id, baseUrl: RUNTIME_BASE_URL() }, (bytes, total) => onProgress('runtime', bytes, total));
+      workerId = job.id;
+      const result = await job.promise;
+      if (result.type === 'error') throw workerError(result.code, result.detail);
+    }
+    if (cancelled) throw new ApiError('aborted', 0);
+
+    const total = conversion.gameBytes;
+    const job = call(
+      { type: 'convert', file, gameId, root: conversion.root, title: sanitizeTitle(title, analysis.detectedTitle ?? 'Unbenanntes Spiel'), runtimeId: runtime.id, limits: LOCAL_LIMITS },
+      (bytes) => onProgress('convert', bytes, total),
+    );
+    workerId = job.id;
+    const result = await job.promise;
+    if (result.type === 'error') throw workerError(result.code, result.detail);
+    if (result.type !== 'converted') throw new ApiError('install_failed', 0);
+    const report = result.report;
+
+    for (const required of ['index.html', 'game.zip']) {
+      if (!(await readGameFile(gameId, required))) throw new ApiError('install_failed', 0, `Nach der Umwandlung fehlt ${required}.`);
+    }
+    let coverVersion = 0;
+    if (report.cover && report.cover.size <= MAX_COVER_BYTES) {
+      const type = detectImageType(new Uint8Array(await report.cover.slice(0, 16).arrayBuffer()));
+      if (type) {
+        await db.covers.put({ id: gameId, data: new Blob([await report.cover.arrayBuffer()], { type: type.mime }) });
+        coverVersion = 1;
+      }
+    }
+    const record: LocalGame = {
+      id: gameId,
+      title: sanitizeTitle(title, analysis.detectedTitle ?? 'Unbenanntes Spiel'),
+      entry: 'index.html',
+      sizeBytes: report.bytesWritten,
+      fileCount: report.filesWritten,
+      installedAt: new Date().toISOString(),
+      lastPlayedAt: null,
+      sourceFileName: file.name.slice(0, 200),
+      runtime: runtime.generation === 'renpyweb' ? 'legacy' : 'wasm',
+      coverVersion,
+      conversion: { runtime: runtime.id, engineVersion: conversion.engineVersion, python: conversion.python, platforms: conversion.platforms },
+    };
+    await db.games.add(record);
+    return { game: await toGame(record, hostUrl), report, runtime };
+  })().catch(async (error: unknown) => {
+    await db.covers.delete(gameId).catch(() => undefined);
+    await removeGameDirectory(gameId).catch(() => undefined);
+    throw error;
+  });
+  return {
+    promise,
+    cancel: () => {
+      cancelled = true;
+      if (workerId) getWorker().postMessage({ type: 'cancel', id: workerId } satisfies WorkerRequest);
+    },
+  };
+}
+
+/** Prüft, ob ein umgewandeltes Spiel vollständig ist (Laufzeit vorhanden). */
+export async function convertedGameReady(gameId: string): Promise<boolean> {
+  const record = await db.games.get(gameId);
+  if (!record?.conversion) return true;
+  return Boolean(await readInstalledRuntime(record.conversion.runtime)) && Boolean(await gameDirectory(gameId).catch(() => null));
 }
 
 /** Entfernt Spielordner ohne Datenbankeintrag (z. B. nach einem Abbruch während der Installation). */

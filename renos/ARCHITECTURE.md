@@ -58,6 +58,29 @@ Spiele werden auf dem iPad installiert (OPFS von RenOS). Ausgeführt werden sie 
 - **Laufzeit (`src/games/sandbox/runtime.js`):** ersetzt vor jedem Spielcode `fetch`, `XMLHttpRequest`, die `src`-Eigenschaft von Bild/Video/Audio, `indexedDB` (genau der von Emscriptens IDBFS genutzte Umfang), `localStorage`/`sessionStorage` (im Arbeitsspeicher), `navigator.serviceWorker` (nicht vorhanden) und `URL` (Basis `about:srcdoc` → virtuelle Basis). Range-Anfragen und MIME-Typen wie beim externen Host. Statusmeldungen (boot/progress/running/error/exit-request) gehen über denselben Port an den Player.
 - **RenOS-Seite (`src/games/sandboxHost.ts`, `src/games/local/saves.ts`):** Alles aus dem iframe gilt als nicht vertrauenswürdig – das Spiel teilt sich den Origin mit der Laufzeit und könnte sie verändern. Dateien: nur für das laufende, installierte Spiel und mit derselben Pfadprüfung wie beim Entpacken. Spielstände: nur für dieses Spiel, Namen/Schlüssel/Typen geprüft, Limits 64 MB pro Eintrag, 1 GB und 50 000 Einträge pro Spiel, Änderungen alles-oder-nichts in einer Transaktion. Beim Entfernen eines Spiels werden seine Spielstände gelöscht; „Spielstände übernehmen von …“ kopiert sie in eine neue Version.
 
+### Windows-/Linux-/Mac-Builds umwandeln
+
+```
+Installer ─► Worker: Analyse ─► Spielordner (…/game/), renpy/vc_version.py → Version, lib/py2|py3 → Python
+                               └─► Laufzeit wählen: Python 3 → renpy-8.6.0, Python 2 → renpy-7.8.7
+          ─► Worker: Laufzeit laden (einmalig) ─► OPFS renos-runtimes/<id>/ (SHA-256 geprüft)
+          ─► Worker: Umwandeln ─► OPFS renos-games/<id>/
+               archives/<n>.rpa   .rpa unverändert kopiert; Index (zlib + Pickle) gelesen
+               game/<pfad>        lose Bilder/Musik/Stimmen/Videos (bei Bedarf geladen)
+               game.zip           Engine (engine.zip des Pakets, Rohdaten übernommen) + Skripte, Schriften,
+                                  GUI, kleine Dateien + _placeholders/ + game/renpyweb_remote_files.txt
+               index.html         Startseite der Laufzeit mit Spieltitel
+               renos-web.json     Datei → Archiv-Ausschnitte für nachgeladene Archivinhalte
+Player ─► eingebauter Host ─► index.html / game.zip / Laufzeitdateien / game/<pfad> (lose oder Archiv-Ausschnitt)
+```
+
+- **Grundidee:** Ein Desktop-Build enthält dieselben Spieldaten wie ein Web-Build. RenOS ersetzt nur die Engine durch die offizielle Ren’Py-Web-Laufzeit und baut die `game.zip` wie der Ren’Py-Launcher (`launcher/game/web.rpy`, `distribute.rpy`).
+- **Laufzeitpakete** (`scripts/build-renpy-runtime.mjs`): beim Deploy aus den offiziellen SDKs (8.6.0, 7.8.7) erzeugt – Web-Laufzeit (`renpy.wasm`/`renpy.data`/`renpy-pre.js` bzw. `index.wasm`/`pythonhome.data`/`pyapp.data`), `engine.zip` (main.py + `renpy/`, bei Python 3 mit Web-Transformation `__pycache__/X.cpython-312.pyc → X.pyc`), `LICENSE.txt`, `runtime.json` mit SHA-256 je Datei. Aus den SDKs wird nichts ausgeführt.
+- **Was sofort geladen wird:** Skripte (`.rpyc`/`.rpy`), Schriften, Daten, GUI-Grafiken (bis 160 MB), kleine Bilder (≤ 24 KB, bis 48 MB) und kurze Klänge (≤ 128 KB, bis 48 MB). **Bei Bedarf:** alle anderen Bilder (`image B,H` – Größe aus dem Dateikopf: PNG, JPEG, WebP, AVIF), Musik (`music`), Stimmen (`voice`, Pfade mit „voice“), Videos (`video`). Bilder ohne lesbare Größe werden sofort geladen. Ordner nachgeladener Dateien stehen als Einträge in der `game.zip`, damit Ren’Py sie im Speicher anlegen kann.
+- **Archive:** RPA-3.0 (XOR-Schlüssel), RPA-2.0, RPA-1.0 (`.rpi`). Der Index wird mit einem eigenen Pickle-Leser gelesen, der nur Daten kennt; Aufrufe sind bis auf `bytes()`/`_codecs.encode` (Python 3 schreibt so Bytes in Protokoll 2) verboten – ein Archiv kann keinen Code ausführen. Unsichere Pfade im Index werden verworfen. Vorrang wie in Ren’Py: lose Dateien vor Archiven, Archive in absteigender Namensfolge.
+- **Ausgelassen:** `game/cache/`, `game/saves/`, `*.rpyb`, `__pycache__`, Programme/Bibliotheken (`.exe`, `.dll`, `.so`, …), Logdateien, die Engine des Spiels (`renpy/`, `lib/`).
+- **Grenzen:** Spiele mit nativen Python-Modulen, Netzwerkzugriffen oder Funktionen, die die Web-Version von Ren’Py nicht kennt, laufen nicht vollständig. Archive in unbekannten Formaten werden übersprungen und gemeldet. Der Server-Modus wandelt nicht um.
+
 ### Externer Spiele-Host (optional)
 
 ```

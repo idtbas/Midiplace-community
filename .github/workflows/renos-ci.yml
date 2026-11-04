@@ -15,7 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RENPY_VERSION: 8.5.3
+  # Ren'Py 8 (Python 3) und 7 (Python 2): Web-Testspiel, Laufzeitpakete und Windows/Linux-Testbuilds.
+  RENPY8: 8.6.0
+  RENPY7: 7.8.7
 
 jobs:
   test:
@@ -38,29 +40,25 @@ jobs:
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
-      # Offizielle Ren'Py-Laufzeit (nur Dateien; aus dem SDK wird nichts ausgeführt).
-      - name: Cache Ren'Py runtime
-        id: renpy-cache
+      # Offizielle Ren'Py-SDKs (nur Dateien; aus den SDKs wird nichts ausgeführt).
+      - name: Cache Ren'Py SDKs
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/renpy
-          key: renpy-${{ env.RENPY_VERSION }}-runtime
-      - name: Download Ren'Py ${{ env.RENPY_VERSION }} (engine + web runtime)
-        if: steps.renpy-cache.outputs.cache-hit != 'true'
-        working-directory: ${{ runner.temp }}
+          key: renpy-sdks-${{ env.RENPY8 }}-${{ env.RENPY7 }}-v2
+      - name: Download Ren'Py ${{ env.RENPY8 }} and ${{ env.RENPY7 }} (engine, sample game, web runtime)
         run: |
-          mkdir -p renpy && cd renpy
-          curl -fsSL -o sdk.tar.bz2 "https://www.renpy.org/dl/${RENPY_VERSION}/renpy-${RENPY_VERSION}-sdk.tar.bz2"
-          curl -fsSL -o web.zip "https://www.renpy.org/dl/${RENPY_VERSION}/renpy-${RENPY_VERSION}-web.zip"
-          tar -xjf sdk.tar.bz2 "renpy-${RENPY_VERSION}-sdk/renpy.py" "renpy-${RENPY_VERSION}-sdk/renpy"
-          unzip -q web.zip -d "renpy-${RENPY_VERSION}-sdk"
-          rm sdk.tar.bz2 web.zip
-      - name: Assemble the RenOS test game as a web build
-        run: npm run testgame -- "${{ runner.temp }}/renpy/renpy-${RENPY_VERSION}-sdk"
+          scripts/fetch-renpy.sh "$RENPY8" "$RUNNER_TEMP/renpy"
+          scripts/fetch-renpy.sh "$RENPY7" "$RUNNER_TEMP/renpy"
+          echo "RENPY_SDKS=$RUNNER_TEMP/renpy/renpy-$RENPY8-sdk,$RUNNER_TEMP/renpy/renpy-$RENPY7-sdk" >> "$GITHUB_ENV"
+      - name: Assemble the RenOS test game (web build) and Windows/Linux test builds
+        run: |
+          npm run testgame -- "$RUNNER_TEMP/renpy/renpy-$RENPY8-sdk"
+          npm run testgame:desktop
 
       - name: E2E (server mode)
         run: npm run test:e2e
-      - name: E2E (local mode, as on GitHub Pages)
+      - name: E2E (local mode incl. Windows/Linux conversion, as on GitHub Pages)
         run: npm run test:e2e:local
       - name: Upload Playwright traces on failure
         if: failure()

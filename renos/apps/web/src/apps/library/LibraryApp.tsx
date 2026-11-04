@@ -387,6 +387,18 @@ function GameDetails({
           <dd className="tabular text-fg-muted">{game.fileCount}</dd>
           <dt className="text-fg-subtle">{t.library.runtime}</dt>
           <dd className="text-fg-muted">{game.runtime === 'legacy' ? t.library.runtimeLegacy : t.library.runtimeWasm}</dd>
+          {game.conversion ? (
+            <>
+              <dt className="text-fg-subtle">{t.library.origin}</dt>
+              <dd className="text-fg-muted" data-testid="game-origin">
+                {t.library.converted(
+                  game.conversion.platforms.map((p) => t.installer.convert.platforms[p]).join(', '),
+                  game.conversion.engineVersion,
+                  game.conversion.runtime.replace(/^renpy-/, ''),
+                )}
+              </dd>
+            </>
+          ) : null}
         </dl>
         {IS_LOCAL && !game.playUrl ? (
           <BuiltinSaves game={game} />
@@ -502,10 +514,10 @@ function LibraryEmpty() {
         </>
       }
     >
-      <p>{t.library.emptyText}</p>
+      <p>{IS_LOCAL ? t.library.emptyTextLocal : t.library.emptyText}</p>
       {!collapsed ? (
         <ol className="mx-auto mt-5 max-w-md space-y-2 text-left text-base">
-          {t.library.howToSteps.map((step, i) => (
+          {(IS_LOCAL ? t.library.howToStepsLocal : t.library.howToSteps).map((step, i) => (
             <li key={step} className="flex gap-3">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-3 text-sm font-semibold text-fg">{i + 1}</span>
               <span>{step}</span>

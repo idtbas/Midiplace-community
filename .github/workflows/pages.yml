@@ -40,9 +40,21 @@ jobs:
       - name: Install RenOS dependencies
         working-directory: renos
         run: npm ci
-      - name: Build RenOS (local mode)
+      # Ren'Py-Laufzeiten für Windows-/Linux-Spiele (offizielle SDKs von renpy.org; nichts wird ausgeführt).
+      - name: Cache Ren'Py SDKs
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/renpy
+          key: renpy-sdks-8.6.0-7.8.7-v2
+      - name: Download Ren'Py 8.6.0 and 7.8.7
+        working-directory: renos
+        run: |
+          scripts/fetch-renpy.sh 8.6.0 "$RUNNER_TEMP/renpy"
+          scripts/fetch-renpy.sh 7.8.7 "$RUNNER_TEMP/renpy"
+      - name: Build RenOS (local mode, with Ren'Py runtimes)
         working-directory: renos
         env:
+          RENPY_SDKS: ${{ runner.temp }}/renpy/renpy-8.6.0-sdk,${{ runner.temp }}/renpy/renpy-7.8.7-sdk
           RENOS_BASE: /${{ github.event.repository.name }}/renos/
           # Optional: Adresse des Spiele-Hosts als Repository-Variable vorbelegen
           # (Settings → Secrets and variables → Actions → Variables → RENOS_GAME_HOST_URL).

@@ -5,9 +5,9 @@
 | Ebene | Werkzeug | Umfang | Befehl |
 | --- | --- | --- | --- |
 | Server: Unit + Integration | Vitest + `fastify.inject` | 52 Tests | `npm test -w @renos/server` |
-| Frontend: Unit | Vitest + jsdom + fake-indexeddb | 55 Tests | `npm test -w @renos/web` |
+| Frontend: Unit | Vitest + jsdom + fake-indexeddb | 69 Tests | `npm test -w @renos/web` |
 | Browser-E2E (Server-Modus) | Playwright (Chromium) | 24 Tests, davon 1 mit echter Ren’Py-Laufzeit | `npm run test:e2e` |
-| Browser-E2E (lokaler Modus) | Playwright, zwei statische Server wie GitHub Pages | 7 Tests, davon 3 mit echter Ren’Py-Laufzeit | `npm run test:e2e:local` |
+| Browser-E2E (lokaler Modus) | Playwright, zwei statische Server wie GitHub Pages | 9 Tests, davon 5 mit echter Ren’Py-Laufzeit (8.6.0 und 7.8.7) | `npm run test:e2e:local` |
 | GitHub Actions | `.github/workflows/renos-ci.yml` | alles oben inkl. Ren’Py-Download | bei jedem Push |
 | Statische Prüfung | TypeScript 6 (strict), ESLint | alle Pakete + E2E | `npm run typecheck`, `npm run lint` |
 
@@ -30,6 +30,7 @@ Alle oben genannten Tests liefen zuletzt vollständig erfolgreich (Chromium 1.63
 - Notizen, Datensicherung (vollständiger Export/Import-Rundlauf), Launcher-Suche, Bridge-Nachrichtenvalidierung.
 - Browser-ZIP-Leser (`games/local/zipReader.test.ts`): CRC32 gegen zlib, Inhaltsverzeichnis, Entpacken, gleiche Analyse wie der Server, **ZIP64**, Zip-Bomb mit gefälschter Größe, beschädigte Daten (CRC), CP437-Namen und Backslashes.
 - Spielstände des eingebauten Spiele-Hosts (`games/local/saves.test.ts`): getrennt pro Spiel, Datum und Binärdaten bleiben erhalten, ungültige Namen/Schlüssel/Werte (Funktionen, Maps, verschachtelte Schlüssel) werden abgelehnt – dann wird gar nichts gespeichert, keine Spielstände für nicht installierte Spiele, Limits pro Eintrag und pro Spiel, Übernahme in eine neue Version, Löschen.
+- Umwandlung von Windows-/Linux-Builds (`games/local/conversion.test.ts`): Pickle-Leser mit echten Python-Pickles (Protokoll 5 wie Ren’Py 8, Protokoll 2 mit `bytes()`-Konstruktor, Textprotokoll 0, große Zahlen) und **Ablehnung eines bösartigen Pickles** (`os.system`); RPA-3.0 mit Schlüssel, Ausschnitte ohne Kopie, unsichere Pfade im Index verworfen, unbekannte Formate verständlich gemeldet; Bildgröße aus PNG/JPEG/WebP/AVIF; ZIP-Schreiber (gespeichert, Deflate unverändert übernommen, UTF-8-Namen, doppelte Einträge abgelehnt, **ZIP64 ab 65 536 Einträgen**, gegengeprüft mit dem eigenen ZIP-Leser); Spielordner in Windows/Linux-, Mac- und reinen `game/`-Archiven; Version aus `vc_version.py`/`__init__.py` (Ren’Py 6–8); Python-Generation; ausgelassene Dateien; Einteilung sofort/bei Bedarf; Format von `renpyweb_remote_files.txt`; Wahl der Laufzeit.
 - Eingebauter Spiele-Host (`games/sandboxHost.test.ts`): Sandbox ohne `allow-same-origin`/Popups/Navigation, strenge CSP ohne Netzwerkquellen, eingesetzte und gegen HTML-Einschleusung maskierte Konfiguration, Handshake nur vom eigenen iframe mit Origin „null“, Abbruch, wenn das Spieldokument lesbar wäre.
 
 ### Lokaler Modus (`e2e/local/local.spec.ts`)
@@ -43,6 +44,7 @@ Alle oben genannten Tests liefen zuletzt vollständig erfolgreich (Chromium 1.63
 - **echte Ren’Py-Laufzeit, eingebauter Host:** lokal installiert, isoliert gestartet, Enter erreicht das Spiel, Spielstand und `persistent`-Daten überstehen Schließen und Neuladen (gespeichert bei RenOS, ein Spiel = eigene Einträge); „Spielstände übernehmen von …“ in eine zweite Installation über die Oberfläche
 - **echte Ren’Py-Laufzeit offline:** Service Worker aktiv, Netzwerk aus, Neuladen, Spiel startet im eingebauten Host
 - **echte Ren’Py-Laufzeit, externer Host:** Spiel auf dem zweiten Origin, Spielstände überstehen Neuladen
+- **Windows-/Linux-Builds, Ren’Py 8 und Ren’Py 7** (je ein Test): „The Question“ als `-pc.zip` mit `scripts.rpa` (nur `.rpyc`), `images.rpa`, losen GUI-Grafiken, Musik und Übersetzungen, `.exe`/`.sh`/`lib/`/`renpy/`. Prüft: Erkennung (Plattformen, Version, Titel, Laufzeit), Laden des Laufzeitpakets, Umwandlung, Start mit der Laufzeit **8.6.0 bzw. 7.8.7**, Labels aus `scripts.rpa`, **byte-genaues Nachladen** eines Bildes aus `images.rpa` und der Musik, Klick auf „Start“ → Skript läuft, Musik spielt, Hintergrund aus dem Archiv wird angezeigt, Spielstand, **zweiter Start offline** mit geladenem Spielstand, Herkunftsangabe in der Library
 
 Zusätzlich manuell gemessen (Chromium, persistentes Profil, siehe ARCHITECTURE.md): 3,2-GB-Archiv (ZIP64-Felder, gespeichert) in ~30 s installiert, Renderer-Speicher +30 MB; 1,5 GB deflate +324 MB. Hinweis: In Playwrights Standard-Inkognito-Profil liegt OPFS im RAM (4-GB-Grenze); dort sind Multi-GB-Installationen nicht aussagekräftig.
 
@@ -58,15 +60,16 @@ Zusätzlich manuell gemessen (Chromium, persistentes Profil, siehe ARCHITECTURE.
 | `installer.spec.ts` | Anmeldepflicht, falsches Passwort, Nicht-ZIP vor Upload abgelehnt, Desktop-Build/Projekt/unsicheres Archiv nicht installierbar, Installation → Library → Game-Origin/MIME → Suche → Entfernen, Player täuscht bei kaputtem Build keinen Erfolg vor |
 | `renpy.spec.ts` | **Echte Ren’Py-8.5-Laufzeit**: Installation über die UI, Start im immersiven Modus, Sandbox-Attribute, Isolation (`window.parent.document` → `SecurityError`), Enter-Taste erreicht das Spiel, Spielstand speichern, Spiel schließen, RenOS neu laden, Spielstand und `persistent`-Daten sind erhalten, ⌥⇧Esc verlässt den immersiven Modus |
 
-## Ren’Py-Laufzeittest vorbereiten
+## Ren’Py-Laufzeittests vorbereiten
 
-Der echte Laufzeittest braucht einen Ren’Py-Web-Build. Das Repository enthält dafür ein eigenes, minimales Testspiel (`e2e/renpy-testgame`, keine fremden Assets). Die Ren’Py-Laufzeit selbst (~40 MB) wird nicht eingecheckt.
+Die echten Laufzeittests brauchen die offiziellen Ren’Py-SDKs samt Web-Paket (nicht eingecheckt). Das Repository enthält ein eigenes, minimales Testspiel (`e2e/renpy-testgame`, keine fremden Assets); für die Windows/Linux-Tests wird „The Question“ aus dem SDK verwendet.
 
-1. Ren’Py-SDK und das passende Web-Paket von https://www.renpy.org/latest.html laden (getestet mit **8.5.3**: `renpy-8.5.3-sdk.tar.bz2` und `renpy-8.5.3-web.zip`).
-2. Das Web-Paket in den SDK-Ordner entpacken (es entsteht `renpy-8.5.3-sdk/web/`).
-3. `npm run testgame -- /pfad/zu/renpy-8.5.3-sdk`
+1. `scripts/fetch-renpy.sh 8.6.0 ~/renpy` und `scripts/fetch-renpy.sh 7.8.7 ~/renpy` (lädt SDK und Web-Paket von renpy.org, entpackt nur die nötigen Teile).
+2. `npm run testgame -- ~/renpy/renpy-8.6.0-sdk` (Web-Build des Testspiels)
+3. `export RENPY_SDKS=~/renpy/renpy-8.6.0-sdk,~/renpy/renpy-7.8.7-sdk` und `npm run testgame:desktop` (Windows/Linux-Builds `TheQuestion-8-pc.zip` und `TheQuestion-7-pc.zip`, gebaut von `scripts/make_renpy_desktop_fixture.py` wie Ren’Pys Archiver: RPA-3.0, Schlüssel 0x42424242, Pickle-Protokoll wie Ren’Py 8 bzw. 7)
+4. `npm run test:e2e:local` mit gesetztem `RENPY_SDKS` baut die Laufzeitpakete in den statischen Build ein.
 
-Das Skript kopiert und packt ausschließlich Dateien in derselben Struktur wie der Launcher („Build Web Application“); es führt nichts aus dem SDK aus. Ergebnis: `e2e/fixtures/generated/RenOSTestspiel-1.0-web.zip`. Fehlt die Datei, wird `renpy.spec.ts` **übersprungen** (nicht als bestanden gewertet).
+Die Skripte kopieren und packen ausschließlich Dateien; aus den SDKs wird nichts ausgeführt. Fehlen die Testbuilds oder Laufzeitpakete, werden die betroffenen Tests **übersprungen** (nicht als bestanden gewertet). In GitHub Actions (`renos-ci.yml`) laufen alle Schritte automatisch.
 
 Alternativ das Testspiel im Ren’Py-Launcher öffnen und über „Web (Beta)“ bauen.
 
@@ -103,6 +106,8 @@ Diese Tests konnten mangels Hardware **nicht** durchgeführt werden. Voraussetzu
 - [ ] Neue Version eines Spiels installieren → „Spielstände übernehmen von …“ → Spielstand im neuen Spiel laden.
 - [ ] Flugmodus: installiertes Spiel offline starten.
 - [ ] Ton, Videos (falls das Spiel welche hat) und Texteingaben (`renpy.input`) im eingebauten Host.
+- [ ] **Windows-/Linux-Download eines echten Spiels** (z. B. „…-pc.zip“ von itch.io) installieren: Analyse zeigt Version und Laufzeit, Laufzeit wird einmalig geladen, Spiel startet, Bilder/Musik/Stimmen kommen nach, Spielstände bleiben. Am besten ein Ren’Py-8- und ein Ren’Py-7-Spiel, eines davon mehrere GB groß.
+- [ ] Arbeitsspeicher bei großen umgewandelten Spielen (Safari kann Tabs mit hohem Speicherbedarf beenden).
 - [ ] Optional: externer Spiele-Host (Fork in Organisation) eintragen und ein Spiel darüber starten.
 - [ ] Settings → Spiele → „Dauerhafter Speicher“ ist aktiv.
 
@@ -126,7 +131,7 @@ Diese Tests konnten mangels Hardware **nicht** durchgeführt werden. Voraussetzu
 - **Nur Chromium:** Safari/WebKit verhält sich bei Tastaturereignissen in iframes, Fullscreen, IndexedDB-Limits, Service-Worker-Lebensdauer und Download-Dialogen teilweise anders.
 - **Standalone-Erkennung** wird im Test durch Überschreiben von `navigator.standalone` simuliert.
 - **Speicherräumung durch iPadOS** (7-Tage-Regel/Speicherdruck) ist nicht automatisiert testbar.
-- **Ren’Py-Vielfalt:** Getestet wurde ein minimales eigenes Spiel. Große Spiele (Speicherbedarf, progressive Downloads, OGG-Audio in Safari, Video) sind nicht abgedeckt.
+- **Ren’Py-Vielfalt:** Getestet wurden ein minimales eigenes Spiel und „The Question“ (Ren’Py 8 und 7, als Windows/Linux-Build mit Archiven). Echte große Visual Novels (mehrere GB, viele Stimmen, Videos, eigene Python-Module, verschlüsselte Archive) sind nicht automatisiert abgedeckt.
 - **Eingebauter Spiele-Host in Safari:** sandboxed `srcdoc`-iframe mit anonymem Origin, `blob:`-URLs, WebAssembly-Streaming aus nachgebildeten `Response`-Objekten und Übergabe von OPFS-Dateien per `MessagePort` sind Web-Standards, aber nur in Chromium geprüft.
 - **Externer Spiele-Host in Safari:** läuft als iframe einer anderen Website (`github.io` ist eine „Public Suffix“-Domain). Service Worker und Speicher sind dort in Safari partitioniert; laut WebKit unterstützt, aber nicht auf einem Gerät geprüft.
 - **Docker-Image** konnte hier nicht gebaut werden (kein Docker-Daemon in der Testumgebung); `npm run build && npm start` im Produktionsmodus wurde dagegen geprüft.

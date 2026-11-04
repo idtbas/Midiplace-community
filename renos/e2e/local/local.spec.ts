@@ -12,6 +12,8 @@ import { chooseFile, webBuildEntries, windowOf, writeZip } from '../helpers';
 const HOST = 'http://localhost:4321/renos-games/';
 const HOST_ORIGIN = 'http://localhost:4321';
 const BUILD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/generated/RenOSTestspiel-1.0-web.zip');
+const DESKTOP = (major: number) => path.join(path.dirname(fileURLToPath(import.meta.url)), `../fixtures/generated/TheQuestion-${major}-pc.zip`);
+const RUNTIMES = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../apps/web/dist-local/runtimes/index.json');
 
 async function openDesktop(page: Page, withHost = true) {
   await page.addInitScript(
@@ -318,4 +320,79 @@ test.describe('Lokaler Modus (ohne Server)', () => {
       });
     });
   });
+
+  test.describe('Windows-/Linux-Spiele (Umwandlung mit Ren’Py-Laufzeit)', () => {
+    test.setTimeout(300_000);
+
+    const exec = (frame: Frame, code: string) =>
+      frame.evaluate((c) => (window as unknown as { renpy_exec: (s: string) => Promise<unknown> }).renpy_exec(c), code);
+
+    for (const { major, runtime } of [
+      { major: 8, runtime: '8.6.0' },
+      { major: 7, runtime: '7.8.7' },
+    ]) {
+      test(`Ren’Py ${major}: Windows/Linux-Build mit .rpa-Archiven wird umgewandelt, läuft offline und speichert`, async ({ page, context }) => {
+        test.skip(!existsSync(DESKTOP(major)) || !existsSync(RUNTIMES), 'Testbuild oder Laufzeitpakete fehlen – siehe TESTING.md („npm run testgame:desktop“, RENPY_SDKS).');
+        await openDesktop(page, false);
+        const win = await openApp(page, 'installer');
+        await chooseFile(page, () => win.getByTestId('installer-choose').click(), DESKTOP(major));
+        const analysis = win.getByTestId('installer-analysis');
+        await expect(analysis).toHaveAttribute('data-conversion', 'true', { timeout: 60_000 });
+        await expect(analysis).toHaveAttribute('data-installable', 'true');
+        await expect(analysis).toContainText('Windows, Linux');
+        await expect(win.getByTestId('installer-engine')).toHaveText(runtime);
+        await expect(win.getByTestId('installer-runtime')).toContainText(`Ren’Py ${runtime}`);
+        await expect(win.locator('#installer-title')).toHaveValue('The Question');
+        await win.getByTestId('installer-install').click();
+        await expect(win.getByTestId('installer-done')).toBeVisible({ timeout: 240_000 });
+        await expect(win.getByTestId('installer-note')).toContainText('nachgeladen');
+
+        await win.getByRole('button', { name: 'Jetzt spielen' }).click();
+        await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
+        let frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;
+        // Die Engine stammt aus dem Laufzeitpaket, die Skripte aus scripts.rpa (nur .rpyc).
+        expect(await exec(frame, 'result = renpy.version_only')).toMatch(new RegExp(`^${runtime.replace(/\./g, '\\.')}`));
+        expect(await exec(frame, "result = renpy.has_label('start') and renpy.has_label('rightaway')")).toBe(true);
+        // Bilder aus images.rpa und lose Musik sind bekannt und werden aus dem iPad-Speicher nachgeladen – byte-genau.
+        expect(await exec(frame, "result = renpy.loadable('images/bg club.jpg') and renpy.loadable('illurock.opus')")).toBe(true);
+        await exec(frame, "renpy.webloader.enqueue('images/bg club.jpg', 'image', 'images/bg club.jpg'); renpy.webloader.enqueue('illurock.opus', 'music', None); result = True");
+        await expect
+          .poll(() => exec(frame, "import os; result = [os.path.getsize(os.path.join(config.gamedir, f)) if os.path.exists(os.path.join(config.gamedir, f)) else -1 for f in ('images/bg club.jpg', 'illurock.opus')]"), {
+            timeout: 30_000,
+          })
+          .toEqual([984435, 234646]);
+
+        // „Start“ im Hauptmenü: Das Skript aus scripts.rpa läuft, Musik und Hintergrund werden nachgeladen.
+        await page.getByTestId('game-frame').click({ position: { x: 68, y: 336 } });
+        await expect.poll(() => exec(frame, 'result = renpy.get_filename_line()[0]'), { timeout: 30_000 }).toMatch(/script\.rpyc?$/);
+        await expect.poll(() => exec(frame, "result = renpy.music.get_playing()"), { timeout: 30_000 }).toBe('illurock.opus');
+        await expect.poll(() => exec(frame, "result = 'bg' in renpy.get_showing_tags('master')"), { timeout: 30_000 }).toBe(true);
+        await exec(frame, "renpy.save('1-1', 'RenOS Umwandlung'); result = True");
+        await page.waitForTimeout(1500);
+
+        await page.getByRole('button', { name: 'Steuerung einblenden' }).click();
+        await page.getByTestId('player-controls').getByRole('button', { name: 'Spiel beenden' }).click();
+
+        // Zweiter Start ohne Netzwerk: Laufzeit und Spiel liegen vollständig auf dem Gerät.
+        await page.evaluate(async () => {
+          await navigator.serviceWorker.ready;
+        });
+        await page.reload();
+        await expect(page.getByTestId('desktop')).toBeVisible();
+        await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+        await context.setOffline(true);
+        await page.reload();
+        await expect(page.getByTestId('desktop')).toBeVisible();
+        const library = await openApp(page, 'library');
+        await library.getByRole('option', { name: /The Question/ }).click();
+        await expect(library.getByTestId('game-origin')).toContainText(`Windows, Linux-Build (Ren’Py ${runtime}), umgewandelt · Laufzeit Ren’Py ${runtime}`);
+        await library.getByRole('option', { name: /The Question/ }).dblclick();
+        await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
+        frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;
+        expect(await exec(frame, "result = renpy.can_load('1-1')")).toBe(true);
+        await context.setOffline(false);
+      });
+    }
+  });
 });
+

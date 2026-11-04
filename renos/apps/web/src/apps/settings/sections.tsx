@@ -10,6 +10,7 @@ import { browserName, displayModeLabel, hasFinePointer, hasHover, isStandalone }
 import { useServer } from '@/api/server';
 import { DEFAULT_GAME_HOST, IS_LOCAL } from '@/config';
 import { gameHostUrl, verifyGameHost, type HostCheck } from '@/games/gameHost';
+import { listInstalledRuntimes, type RuntimeManifest } from '@/games/local/runtimes';
 import { db, kvSet } from '@/persistence/db';
 import { createBackup, restoreBackup, wipeLocalData } from '@/persistence/backup';
 import { HOME_ID, SPECIAL_FOLDERS, deleteNodes, listChildren, usage } from '@/persistence/fs';
@@ -500,7 +501,9 @@ function LocalGamesSection() {
   const [draft, setDraft] = useState(s.gameHostUrl);
   const [check, setCheck] = useState<HostCheck | 'checking' | null>(null);
   const [persisted, setPersisted] = useState<boolean | null>(null);
+  const [runtimes, setRuntimes] = useState<RuntimeManifest[] | null>(null);
   useEffect(() => {
+    void listInstalledRuntimes().then(setRuntimes);
     void loadStorage();
     void navigator.storage?.persisted?.().then(setPersisted);
   }, [loadStorage]);
@@ -577,6 +580,14 @@ function LocalGamesSection() {
       <Group title="Speicher auf diesem iPad">
         <Row label="Installierte Spiele" hint={storage ? `${storage.gamesCount} Spiel(e)` : undefined}>
           <span className="text-sm text-fg-muted">{storage ? formatBytes(storage.gamesBytes) : '–'}</span>
+        </Row>
+        <Row
+          label="Ren’Py-Laufzeiten"
+          hint="Werden beim ersten Windows-/Linux-Spiel einmalig geladen und von allen umgewandelten Spielen gemeinsam genutzt."
+        >
+          <span className="text-sm text-fg-muted" data-testid="settings-runtimes">
+            {runtimes === null ? '…' : runtimes.length ? runtimes.map((r) => `${r.version} (${formatBytes(r.totalBytes)})`).join(', ') : 'keine'}
+          </span>
         </Row>
         <Row label="Noch verfügbar für RenOS" hint="Schätzung von iPadOS. Installierte Web-Apps dürfen bis zu etwa 60 % des Gerätespeichers nutzen.">
           <span className="text-sm text-fg-muted">{storage?.diskFreeBytes != null ? formatBytes(storage.diskFreeBytes) : '–'}</span>

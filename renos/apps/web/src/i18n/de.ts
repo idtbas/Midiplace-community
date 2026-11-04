@@ -224,6 +224,14 @@ export const de = {
     emptyTitle: 'Noch keine Spiele installiert',
     emptyText:
       'RenOS führt Ren’Py-Spiele aus, die als Web-Build erstellt wurden. Öffne den Installer und wähle die ZIP-Datei eines Web-Builds aus.',
+    emptyTextLocal:
+      'RenOS führt Ren’Py-Spiele aus – Windows-/Linux-Downloads genauso wie Web-Builds. Öffne den Installer und wähle die ZIP-Datei des Spiels.',
+    howToStepsLocal: [
+      'Das Spiel als ZIP-Datei laden (z. B. „…-pc.zip“ für Windows/Linux) und in der Dateien-App ablegen.',
+      'In RenOS den Installer öffnen und die ZIP-Datei auswählen.',
+      'RenOS prüft das Spiel und wandelt Windows-/Linux-Builds automatisch für das iPad um.',
+      'In der Library auf „Spielen“ tippen.',
+    ],
     emptyAction: 'Installer öffnen',
     howTo: 'Wie erstelle ich einen Web-Build?',
     howToSteps: [
@@ -241,6 +249,9 @@ export const de = {
     gamesCount: (n: number) => (n === 1 ? '1 Spiel' : `${n} Spiele`),
     freeOnServer: (s: string) => `${s} frei`,
     savesTitle: 'Spielstände',
+    origin: 'Herkunft',
+    converted: (platforms: string, engine: string | null, runtime: string) =>
+      `${platforms || 'Desktop'}-Build${engine ? ` (Ren’Py ${engine})` : ''}, umgewandelt · Laufzeit Ren’Py ${runtime}`,
     savesText:
       'Ren’Py speichert Spielstände im Browser (IndexedDB des Spiele-Origins). Über das ☰-Menü oben links im Spiel lassen sich Spielstände exportieren und importieren – empfehlenswert als Sicherung.',
     savesTextBuiltin:
@@ -269,8 +280,9 @@ export const de = {
     cancelUpload: 'Upload abbrechen',
     uploadCancelled: 'Upload abgebrochen.',
     installCancelled: 'Installation abgebrochen. Es wurde nichts übernommen.',
+    titleLocal: 'Ren’Py-Spiel installieren',
     subtitleLocal:
-      'Wähle die ZIP-Datei eines Ren’Py-Web-Builds („…-web.zip“). Sie wird geprüft und direkt auf diesem iPad installiert – nichts wird hochgeladen.',
+      'Wähle ein Ren’Py-Spiel als ZIP-Datei: Windows-/Linux-Download („…-pc.zip“), Mac-Version oder Web-Build („…-web.zip“). Es wird auf diesem iPad geprüft und installiert – nichts wird hochgeladen.',
     localHint: 'Kein Größenlimit außer dem freien Speicher des iPads',
     localUnsupported:
       'Dieser Browser stellt keinen Dateispeicher für Web-Apps (Origin Private File System) bereit. Bitte RenOS als Web-App in Safari (iPadOS 16.4 oder neuer) verwenden.',
@@ -303,12 +315,35 @@ export const de = {
     kindText: {
       'renpy-web': 'Dieses Archiv enthält einen Ren’Py-Web-Build und kann in RenOS ausgeführt werden.',
       'renpy-project':
-        'Dieses Archiv enthält die Quelldateien eines Ren’Py-Projekts. Sie können nicht direkt im Browser laufen. Erstelle im Ren’Py-Launcher unter „Web (Beta)“ einen Web-Build und installiere dessen ZIP-Datei. Eine automatische Konvertierung ist in RenOS 1.0 nicht enthalten.',
+        'Dieses Archiv enthält die Quelldateien eines Ren’Py-Projekts. Der RenOS-Server installiert nur Web-Builds; im lokalen Modus (RenOS auf GitHub Pages) wandelt RenOS Projekte und Windows-/Linux-Builds automatisch um.',
       'renpy-desktop':
-        'Dieses Archiv ist ein Desktop-Build für Windows, Linux oder macOS. Solche Programme können im Browser nicht ausgeführt werden. Benötigt wird der Web-Build des Spiels.',
+        'Dieses Archiv ist ein Ren’Py-Build für Windows, Linux oder macOS. Der RenOS-Server installiert nur Web-Builds; im lokalen Modus (RenOS auf GitHub Pages) wandelt RenOS solche Builds automatisch um.',
       unknown:
         'In diesem Archiv wurde kein Ren’Py-Web-Build gefunden (index.html, renpy.js, renpy.wasm und game.zip).',
     } satisfies Record<ArchiveKind, string>,
+    convert: {
+      title: (platforms: string) => `Ren’Py-Spiel für ${platforms}`,
+      titleProject: 'Ren’Py-Projekt',
+      text: 'RenOS wandelt das Spiel auf diesem iPad in einen Web-Build um: Die Engine wird durch die Ren’Py-Web-Laufzeit ersetzt, Bilder, Musik und Stimmen werden beim Spielen aus dem iPad-Speicher nachgeladen. Es wird nichts hochgeladen.',
+      textProject: 'RenOS baut aus den Projektdateien einen Web-Build. Die Skripte werden beim ersten Start kompiliert – das kann etwas dauern.',
+      engine: 'Ren’Py-Version des Spiels',
+      engineUnknown: 'nicht erkennbar',
+      python: 'Generation',
+      pythonValue: (p: 2 | 3 | null) => (p === 2 ? 'Ren’Py 6/7 (Python 2)' : p === 3 ? 'Ren’Py 8 (Python 3)' : 'unbekannt – Ren’Py 8 wird angenommen'),
+      archives: 'Archive (.rpa)',
+      runtime: 'Laufzeit in RenOS',
+      runtimeReady: (v: string) => `Ren’Py ${v} (bereits auf diesem iPad)`,
+      runtimeDownload: (v: string, size: string) => `Ren’Py ${v} – wird einmalig geladen (${size})`,
+      runtimeChecking: 'wird geprüft …',
+      runtimeMissing: 'Keine passende Ren’Py-Laufzeit verfügbar. Beim ersten Windows-/Linux-Spiel muss das iPad online sein (oder dieser RenOS-Build enthält keine Laufzeitpakete).',
+      newerEngine: (game: string, runtime: string) => `Das Spiel wurde mit Ren’Py ${game} erstellt, RenOS verwendet ${runtime}. Meist funktioniert das, kleinere Unterschiede sind möglich.`,
+      install: 'Umwandeln & installieren',
+      stepRuntime: 'Ren’Py-Laufzeit laden',
+      stepConvert: 'Spiel umwandeln',
+      done: (remote: number) => `Umgewandelt. ${remote} Dateien (Bilder, Musik, Stimmen, Videos) werden beim Spielen nachgeladen.`,
+      unsupportedArchives: (list: string) => `Diese Archive haben ein unbekanntes Format und wurden übersprungen – das Spiel läuft womöglich nicht vollständig: ${list}`,
+      platforms: { windows: 'Windows', linux: 'Linux', mac: 'macOS' } as Record<'windows' | 'linux' | 'mac', string>,
+    },
     checks: {
       format: 'Archivformat',
       size: 'Größe & Kompression',

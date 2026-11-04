@@ -21,6 +21,7 @@ export function AnalysisView({
   onDiscard,
   children,
   installDisabled,
+  conversionFacts,
 }: {
   analysis: ArchiveAnalysis;
   title: string;
@@ -29,23 +30,43 @@ export function AnalysisView({
   onDiscard: () => void;
   children?: React.ReactNode;
   installDisabled?: boolean;
+  /** Zusätzliche Angaben bei der Umwandlung eines Desktop-Builds (z. B. die verwendete Laufzeit). */
+  conversionFacts?: React.ReactNode;
 }) {
   const ok = analysis.installable;
+  const conversion = analysis.conversion ?? null;
+  const platforms = conversion?.platforms.map((p) => t.installer.convert.platforms[p]).join(', ');
+  const heading = conversion ? (platforms ? t.installer.convert.title(platforms) : t.installer.convert.titleProject) : t.installer.kind[analysis.kind];
+  const text = conversion ? (analysis.kind === 'renpy-project' ? `${t.installer.convert.text} ${t.installer.convert.textProject}` : t.installer.convert.text) : t.installer.kindText[analysis.kind];
   return (
-    <div data-testid="installer-analysis" data-kind={analysis.kind} data-installable={ok}>
+    <div data-testid="installer-analysis" data-kind={analysis.kind} data-installable={ok} data-conversion={conversion ? 'true' : undefined}>
       <div className={cn('flex items-start gap-3 rounded-lg border p-4', ok ? 'border-success/30 bg-success-soft' : 'border-warning/30 bg-warning-soft')}>
         {ok ? <CircleCheck size={20} className="mt-0.5 shrink-0 text-success" /> : <CircleAlert size={20} className="mt-0.5 shrink-0 text-warning" />}
         <div>
-          <div className="text-base font-semibold text-fg">{t.installer.kind[analysis.kind]}</div>
-          <p className="mt-0.5 text-base text-fg-muted">{t.installer.kindText[analysis.kind]}</p>
+          <div className="text-base font-semibold text-fg">{heading}</div>
+          <p className="mt-0.5 text-base text-fg-muted">{text}</p>
         </div>
       </div>
+
+      {conversion ? (
+        <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm" data-testid="installer-conversion">
+          <dt className="text-fg-subtle">{t.installer.convert.engine}</dt>
+          <dd className="text-fg-muted" data-testid="installer-engine">{conversion.engineVersion ?? t.installer.convert.engineUnknown}</dd>
+          <dt className="text-fg-subtle">{t.installer.convert.python}</dt>
+          <dd className="text-fg-muted">{t.installer.convert.pythonValue(conversion.python)}</dd>
+          <dt className="text-fg-subtle">{t.installer.convert.archives}</dt>
+          <dd className="tabular text-fg-muted">
+            {conversion.archives} · {formatBytes(conversion.archiveBytes)}
+          </dd>
+          {conversionFacts}
+        </dl>
+      ) : null}
 
       <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3">
         <div>
           <div className="mb-2 text-sm font-semibold text-fg-muted">{t.installer.resultTitle}</div>
           <ul className="flex flex-col gap-1.5 text-base">
-            {analysis.checks.map((check) => (
+            {analysis.checks.filter((check) => !conversion || ['format', 'size', 'entries', 'paths'].includes(check.id)).map((check) => (
               <li key={check.id} className="flex items-center gap-2">
                 {check.ok ? <CircleCheck size={15} className="text-success" /> : <CircleX size={15} className="text-fg-faint" />}
                 <span className={check.ok ? 'text-fg' : 'text-fg-subtle'}>{t.installer.checks[check.id]}</span>
@@ -105,7 +126,7 @@ export function AnalysisView({
         </Button>
         {ok ? (
           <Button variant="primary" onClick={onInstall} disabled={!title.trim() || installDisabled} data-testid="installer-install">
-            {t.installer.install}
+            {conversion ? t.installer.convert.install : t.installer.install}
           </Button>
         ) : null}
       </div>
