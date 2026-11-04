@@ -18,7 +18,10 @@
     <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
     <style>
       /* Startbildschirm ohne JavaScript – verschwindet, sobald RenOS geladen ist. */
-      html, body { margin: 0; height: 100%; background: #11151c; color: #e8ecf2; }
+      html, body { margin: 0; height: 100%; }
+      /* Nur bis RenOS das Erscheinungsbild gesetzt hat (data-theme), danach gelten die Design-Tokens. */
+      :root:not([data-theme]) { background: #11151c; color: #e8ecf2; }
+      #boot-splash { background: #11151c; color: #e8ecf2; }
       #boot-splash {
         position: fixed; inset: 0; display: grid; place-items: center; z-index: 1;
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;

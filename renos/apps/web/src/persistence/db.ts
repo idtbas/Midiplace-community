@@ -49,7 +49,14 @@ export interface LocalGame {
   runtime: 'wasm' | 'legacy' | null;
   coverVersion: number;
   /** Aus einem Windows-/Linux-/Mac-Build umgewandelt: verwendete Ren'Py-Laufzeit und erkannte Version. */
-  conversion?: { runtime: string; engineVersion: string | null; python: 2 | 3 | null; platforms: Array<'windows' | 'linux' | 'mac'> };
+  conversion?: {
+    runtime: string;
+    engineVersion: string | null;
+    python: 2 | 3 | null;
+    platforms: Array<'windows' | 'linux' | 'mac'>;
+    /** Stand der Umwandlung (siehe CONVERTER_VERSION); fehlt bei Installationen vor Stand 2. */
+    converter?: number;
+  };
 }
 
 export interface LocalCover {

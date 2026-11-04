@@ -9,6 +9,8 @@ import type { WorkerRequest, WorkerResponse } from './installWorker';
 import { forgetGameDirectory, gameDirectory, listGameDirectories, readGameFile, removeGameDirectory } from './opfs';
 import { availableRuntimes, readInstalledRuntime, readRuntimeFile, type RuntimeSummary } from './runtimes';
 import { deleteSaves } from './saves';
+import { upgradeGameZip } from './upgrade';
+import { CONVERTER_VERSION } from './webSupport';
 
 /**
  * Spiele, die direkt auf diesem Gerät installiert sind (Modus „lokal“, z. B. RenOS auf GitHub Pages).
@@ -282,6 +284,7 @@ export async function deleteLocalGame(id: string): Promise<void> {
   await deleteSaves(id);
   forgetGameDirectory(id);
   manifests.delete(id);
+  upgradedZips.delete(id);
   const cached = coverUrls.get(id);
   if (cached) URL.revokeObjectURL(cached.url);
   coverUrls.delete(id);
@@ -388,7 +391,43 @@ export async function readInstalledGameFile(gameId: string, path: string): Promi
     }
   }
   if (path === 'renos-web.json' || path.startsWith('archives/')) return null;
+  if (path === 'game.zip' && (record.conversion.converter ?? 1) < CONVERTER_VERSION) {
+    const upgraded = await upgradedGameZip(gameId);
+    if (upgraded) return upgraded;
+  }
   return readGameFile(gameId, path);
+}
+
+const upgradedZips = new Map<string, Promise<Blob | null>>();
+
+/**
+ * game.zip einer älteren Umwandlung mit den Korrekturen der aktuellen Fassung (ohne Neuinstallation).
+ * Ist nichts zu tun, wird das Spiel als aktuell markiert; bei Fehlern bleibt die ursprüngliche Datei.
+ */
+function upgradedGameZip(gameId: string): Promise<Blob | null> {
+  let cached = upgradedZips.get(gameId);
+  if (!cached) {
+    cached = (async () => {
+      const zip = await readGameFile(gameId, 'game.zip');
+      if (!zip) return null;
+      try {
+        const result = await upgradeGameZip(zip);
+        if (!result) {
+          const record = await db.games.get(gameId);
+          if (record?.conversion) await db.games.update(gameId, { conversion: { ...record.conversion, converter: CONVERTER_VERSION } });
+          return null;
+        }
+        const { droppedSources, resizedPlaceholders, supportFiles } = result.report;
+        console.log(`[RenOS] game.zip von ${gameId} aktualisiert: ${droppedSources} .rpy ausgelassen, ${resizedPlaceholders} Platzhalter, ${supportFiles} Hilfsdateien`);
+        return result.blob;
+      } catch (error) {
+        console.warn('[RenOS] game.zip konnte nicht aktualisiert werden', error);
+        return null;
+      }
+    })();
+    upgradedZips.set(gameId, cached);
+  }
+  return cached;
 }
 
 // ----- Umwandlung von Windows-/Linux-/Mac-Builds -----------------------------
@@ -472,7 +511,7 @@ export function installConvertedGame(
       sourceFileName: file.name.slice(0, 200),
       runtime: runtime.generation === 'renpyweb' ? 'legacy' : 'wasm',
       coverVersion,
-      conversion: { runtime: runtime.id, engineVersion: conversion.engineVersion, python: conversion.python, platforms: conversion.platforms },
+      conversion: { runtime: runtime.id, engineVersion: conversion.engineVersion, python: conversion.python, platforms: conversion.platforms, converter: CONVERTER_VERSION },
     };
     await db.games.add(record);
     return { game: await toGame(record, hostUrl), report, runtime };

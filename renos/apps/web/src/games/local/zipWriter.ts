@@ -1,4 +1,5 @@
 import { crc32 } from './crc32';
+import { readRange } from './zipReader';
 
 /**
  * ZIP-Schreiber für die game.zip umgewandelter Spiele.
@@ -10,6 +11,28 @@ import { crc32 } from './crc32';
 
 export interface ZipSink {
   write(chunk: Uint8Array): void | Promise<void>;
+  /**
+   * Optional: einen Blob unverändert übernehmen, ohne ihn zu lesen (z. B. Ausschnitte einer vorhandenen
+   * Datei für ein zusammengesetztes ZIP). Ohne diese Methode wird der Blob abschnittsweise gelesen.
+   */
+  writeBlob?(blob: Blob): void | Promise<void>;
+}
+
+/** Senke, die das ZIP als zusammengesetzten Blob liefert – Blob-Teile werden dabei nicht kopiert. */
+export class BlobPartsSink implements ZipSink {
+  private readonly parts: BlobPart[] = [];
+
+  write(chunk: Uint8Array): void {
+    this.parts.push(chunk as Uint8Array<ArrayBuffer>);
+  }
+
+  writeBlob(blob: Blob): void {
+    this.parts.push(blob);
+  }
+
+  toBlob(type = 'application/zip'): Blob {
+    return new Blob(this.parts, { type });
+  }
 }
 
 interface CentralRecord {
@@ -37,7 +60,7 @@ export interface RawEntry {
   compressedSize: number;
   uncompressedSize: number;
   /** Die (ggf. komprimierten) Daten, genau `compressedSize` Bytes. */
-  data: AsyncIterable<Uint8Array> | Iterable<Uint8Array>;
+  data: AsyncIterable<Uint8Array> | Iterable<Uint8Array> | Blob;
 }
 
 export class ZipWriter {
@@ -96,13 +119,23 @@ export class ZipWriter {
     }
     await this.emit(new Uint8Array(header.buffer));
 
-    let written = 0;
-    for await (const chunk of entry.data) {
-      written += chunk.byteLength;
-      if (written > entry.compressedSize) throw new Error(`mehr Daten als angegeben: ${entry.name}`);
-      await this.emit(chunk);
+    if (entry.data instanceof Blob) {
+      if (entry.data.size !== entry.compressedSize) throw new Error(`Datengröße passt nicht: ${entry.name}`);
+      if (this.sink.writeBlob) {
+        if (entry.data.size) await this.sink.writeBlob(entry.data);
+        this.offset += entry.data.size;
+      } else {
+        for await (const chunk of readRange(entry.data, 0, entry.data.size)) await this.emit(chunk);
+      }
+    } else {
+      let written = 0;
+      for await (const chunk of entry.data) {
+        written += chunk.byteLength;
+        if (written > entry.compressedSize) throw new Error(`mehr Daten als angegeben: ${entry.name}`);
+        await this.emit(chunk);
+      }
+      if (written !== entry.compressedSize) throw new Error(`weniger Daten als angegeben: ${entry.name}`);
     }
-    if (written !== entry.compressedSize) throw new Error(`weniger Daten als angegeben: ${entry.name}`);
 
     this.names.add(entry.name);
     this.records.push({ name, method: entry.method, crc: entry.crc >>> 0, compressedSize: entry.compressedSize, uncompressedSize: entry.uncompressedSize, offset });

@@ -38,6 +38,96 @@ async function openApp(page: Page, appId: string) {
   return windowOf(page, appId).last();
 }
 
+/**
+ * Versetzt ein umgewandeltes Spiel in den Zustand einer früheren RenOS-Fassung (Stand 1): neben einer
+ * .rpyc liegt wieder die .rpy – mit Syntax, die die Laufzeit nicht übersetzen kann (wie bei Student
+ * Transfer) –, und die Versionsmarke fehlt. RenOS muss das beim Start ohne Neuinstallation reparieren.
+ */
+async function makeLegacyInstall(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const records = await new Promise<Array<{ id: string; conversion?: Record<string, unknown> }>>((resolve, reject) => {
+      const open = indexedDB.open('renos');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const tx = open.result.transaction('games', 'readwrite');
+        const store = tx.objectStore('games');
+        const all = store.getAll();
+        all.onsuccess = () => {
+          const list = all.result as Array<{ id: string; conversion?: Record<string, unknown> }>;
+          for (const record of list) {
+            if (!record.conversion) continue;
+            delete record.conversion.converter;
+            store.put(record);
+          }
+          tx.oncomplete = () => resolve(list);
+        };
+        all.onerror = () => reject(all.error);
+      };
+    });
+    const game = records.find((r) => r.conversion);
+    if (!game) throw new Error('kein umgewandeltes Spiel');
+    const root = await navigator.storage.getDirectory();
+    const dir = await (await root.getDirectoryHandle('renos-games')).getDirectoryHandle(game.id);
+    const handle = await dir.getFileHandle('game.zip');
+    const file = await handle.getFile();
+    const tail = new DataView(await file.slice(file.size - 22).arrayBuffer());
+    if (tail.getUint32(0, true) !== 0x06054b50) throw new Error('Ende des Inhaltsverzeichnisses nicht gefunden');
+    const count = tail.getUint16(10, true);
+    const cdSize = tail.getUint32(12, true);
+    const cdOffset = tail.getUint32(16, true);
+    if (count === 0xffff || cdOffset === 0xffffffff) throw new Error('ZIP64 wird hier nicht unterstützt');
+    const cd = new Uint8Array(await file.slice(cdOffset, cdOffset + cdSize).arrayBuffer());
+    const view = new DataView(cd.buffer);
+    const names: string[] = [];
+    for (let p = 0; p < cd.byteLength; ) {
+      const nameLength = view.getUint16(p + 28, true);
+      names.push(new TextDecoder().decode(cd.subarray(p + 46, p + 46 + nameLength)));
+      p += 46 + nameLength + view.getUint16(p + 30, true) + view.getUint16(p + 32, true);
+    }
+    const compiled = names.find((n) => /^game\/.+\.rpyc$/.test(n) && !names.includes(n.slice(0, -1)));
+    if (!compiled) throw new Error('keine .rpyc in der game.zip');
+    const name = new TextEncoder().encode(compiled.slice(0, -1));
+    const data = new TextEncoder().encode('label renos_legacy_check:\n    john a_11 : a_4, patty a_4: a_11\n');
+    let crc = ~0;
+    for (const byte of data) {
+      crc ^= byte;
+      for (let k = 0; k < 8; k += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+    crc = ~crc >>> 0;
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint16(6, 0x0800, true);
+    local.setUint32(14, crc, true);
+    local.setUint32(18, data.byteLength, true);
+    local.setUint32(22, data.byteLength, true);
+    local.setUint16(26, name.byteLength, true);
+    const central = new DataView(new ArrayBuffer(46));
+    central.setUint32(0, 0x02014b50, true);
+    central.setUint16(4, (3 << 8) | 20, true);
+    central.setUint16(6, 20, true);
+    central.setUint16(8, 0x0800, true);
+    central.setUint32(16, crc, true);
+    central.setUint32(20, data.byteLength, true);
+    central.setUint32(24, data.byteLength, true);
+    central.setUint16(28, name.byteLength, true);
+    central.setUint32(38, (0o100644 << 16) >>> 0, true);
+    central.setUint32(42, cdOffset, true);
+    const newCdOffset = cdOffset + 30 + name.byteLength + data.byteLength;
+    const eocd = new DataView(new ArrayBuffer(22));
+    eocd.setUint32(0, 0x06054b50, true);
+    eocd.setUint16(8, count + 1, true);
+    eocd.setUint16(10, count + 1, true);
+    eocd.setUint32(12, cdSize + 46 + name.byteLength, true);
+    eocd.setUint32(16, newCdOffset, true);
+    const writable = await handle.createWritable({ keepExistingData: true });
+    await writable.seek(cdOffset);
+    await writable.write(new Blob([local.buffer, name, data, cd, central.buffer, name, eocd.buffer]));
+    await writable.close();
+    return compiled.slice('game/'.length, -1);
+  });
+}
+
 async function installLocally(page: Page, file: string) {
   const win = await openApp(page, 'installer');
   await chooseFile(page, () => win.getByTestId('installer-choose').click(), file);
@@ -289,7 +379,11 @@ test.describe('Lokaler Modus (ohne Server)', () => {
       await library.getByTestId('game-saves-copy').click();
       await page.getByRole('menuitem', { name: /RenOS Testspiel/ }).click();
       await page.getByRole('alertdialog').getByRole('button', { name: 'Spielstände übernehmen' }).click();
-      await expect(library.getByTestId('game-saves-count')).toHaveText(sourceCount!);
+      // Gleiche Anzahl Dateien. (Die Größe nicht vergleichen: Ren’Py schreibt „persistent“ beim Beenden
+      // eventuell noch einmal, die gerundete KB-Angabe kann sich dadurch um eins unterscheiden.)
+      const files = /^\d+ Dateien?/.exec(sourceCount ?? '')?.[0];
+      expect(files).toBeTruthy();
+      await expect(library.getByTestId('game-saves-count')).toContainText(files!);
     });
 
     test('eingebauter Spiele-Host: startet ein installiertes Spiel auch offline', async ({ page, context }) => {
@@ -381,6 +475,11 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         await page.getByRole('button', { name: 'Steuerung einblenden' }).click();
         await page.getByTestId('player-controls').getByRole('button', { name: 'Spiel beenden' }).click();
 
+        // Installation einer früheren RenOS-Fassung nachstellen (.rpy neben .rpyc, keine Versionsmarke).
+        const legacySource = await makeLegacyInstall(page);
+        const logs: string[] = [];
+        page.on('console', (message) => logs.push(message.text()));
+
         // Zweiter Start ohne Netzwerk: Laufzeit und Spiel liegen vollständig auf dem Gerät.
         await page.evaluate(async () => {
           await navigator.serviceWorker.ready;
@@ -398,6 +497,12 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
         frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;
         expect(await exec(frame, "result = renpy.can_load('1-1')")).toBe(true);
+        // Ältere Installation wurde beim Start repariert: Die .rpy fehlt in der gelieferten game.zip, das
+        // Skript lief ohne „Parsing the script failed“, das Unterstützungsskript ist dabei.
+        expect(await exec(frame, `result = renpy.loadable(${JSON.stringify(legacySource)})`)).toBe(false);
+        expect(await exec(frame, "result = renpy.has_label('start') and not renpy.has_label('renos_legacy_check')")).toBe(true);
+        expect(await exec(frame, "result = renpy.loadable('renos_web_support.rpy')")).toBe(true);
+        expect(logs.some((line) => /game\.zip von .* aktualisiert: 1 \.rpy ausgelassen/.test(line))).toBe(true);
         await context.setOffline(false);
       });
     }

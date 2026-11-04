@@ -18,5 +18,11 @@ export const APP_COMPONENTS: Record<AppId, LazyExoticComponent<ComponentType<App
   notes: lazy(() => import('@/apps/notes/NotesApp')),
   terminal: lazy(() => import('@/apps/terminal/TerminalApp')),
   settings: lazy(() => import('@/apps/settings/SettingsApp')),
+  editor: lazy(() => import('@/apps/editor/EditorApp')),
+  viewer: lazy(() => import('@/apps/viewer/ViewerApp')),
+  media: lazy(() => import('@/apps/media/MediaApp')),
+  calculator: lazy(() => import('@/apps/calculator/CalculatorApp')),
+  clock: lazy(() => import('@/apps/clock/ClockApp')),
+  monitor: lazy(() => import('@/apps/monitor/MonitorApp')),
   player: lazy(() => import('@/apps/player/PlayerApp')),
 };

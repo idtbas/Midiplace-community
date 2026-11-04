@@ -10,6 +10,8 @@ on:
     paths: ['renos/**', '.github/workflows/renos-ci.yml']
   workflow_dispatch:
 
+# Neue Pushes auf denselben Branch brechen ältere, noch laufende Prüfungen ab. (Eigene Gruppe je Ref:
+# Der pull_request-Lauf darf den push-Lauf nicht abbrechen.)
 concurrency:
   group: renos-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -21,6 +23,10 @@ env:
 
 jobs:
   test:
+    # Ein Lauf pro Stand: Ein Pull Request aus diesem Repository ist schon durch den push-Lauf seines
+    # Branches geprüft – der doppelte pull_request-Lauf wird übersprungen (zählt als bestanden).
+    # Pull Requests aus Forks (ohne push-Lauf hier) werden weiterhin geprüft.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:

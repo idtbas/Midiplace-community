@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Texteditor: Blatt mit Textzeilen und Stift (Stil des RenOS-Icon-Pakets) -->
+  <path d="M60 36h96l44 44v128a16 16 0 0 1-16 16H60a16 16 0 0 1-16-16V52a16 16 0 0 1 16-16z" fill="#5d6167"/>
+  <path d="M156 36l44 44h-30a14 14 0 0 1-14-14z" fill="#8d9096"/>
+  <rect x="72" y="104" width="96" height="10" rx="5" fill="#cdd0d4"/>
+  <rect x="72" y="128" width="112" height="10" rx="5" fill="#cdd0d4"/>
+  <rect x="72" y="152" width="70" height="10" rx="5" fill="#cdd0d4"/>
+  <path d="M150 196l52-52 18 18-52 52-24 6z" fill="#b4b7bc"/>
+  <path d="M202 144l8-8a6 6 0 0 1 9 0l9 9a6 6 0 0 1 0 9l-8 8z" fill="#8d9096"/>
+</svg>

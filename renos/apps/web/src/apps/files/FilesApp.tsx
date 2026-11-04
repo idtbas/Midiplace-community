@@ -4,8 +4,11 @@ import {
   ArrowRight,
   ArrowUp,
   ChevronRight,
+  Archive,
   ClipboardPaste,
   Copy,
+  Eye,
+  FilePlus2,
   Download,
   FolderOpen,
   FolderPlus,
@@ -14,6 +17,7 @@ import {
   List,
   PackageOpen,
   PanelRight,
+  ExternalLink,
   Pencil,
   RotateCcw,
   Scissors,
@@ -23,6 +27,8 @@ import {
 } from 'lucide-react';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
+import { APP_META } from '@/system/appMeta';
+import { openFileWith, openersFor } from '@/system/fileTypes';
 import { formatBytes, formatDateTime } from '@/lib/format';
 import { db, type FsNode } from '@/persistence/db';
 import {
@@ -30,6 +36,7 @@ import {
   HOME_ID,
   SPECIAL_FOLDERS,
   copyNodes,
+  createFile,
   createFolder,
   deleteNodes,
   emptyTrash,
@@ -60,7 +67,7 @@ import { EmptyState } from '@/ui/Feedback';
 import { TextInput } from '@/ui/Form';
 import { FileIcon } from './FileIcon';
 import { FilePreview } from './FilePreview';
-import { exportNodes, importFiles, pickAndImport } from './fileOps';
+import { compressNodes, exportNodes, extractZip, importFiles, pickAndImport } from './fileOps';
 import { asset } from '@/config';
 
 type Location = string; // Ordner-ID oder 'trash'
@@ -194,11 +201,38 @@ export default function FilesApp({ windowId, payload }: AppProps) {
   const open = (node: FsNode) => {
     if (isTrash) return;
     if (node.kind === 'folder') navigate(node.id);
-    else {
+    // Datei in ihrer Standard-App öffnen; ohne passende App die Vorschau zeigen.
+    else if (!openFileWith(node)) {
       setSelection([node.id]);
       setShowPreview(true);
     }
   };
+
+  const extract = (node: FsNode) =>
+    run(async () => {
+      notify({ kind: 'info', title: `${node.name} wird entpackt …`, transient: true });
+      const { folder, files, skipped } = await extractZip(node.id);
+      notify({ kind: 'success', title: `${files} Datei${files === 1 ? '' : 'en'} entpackt nach „${folder.name}“.`, message: skipped ? `${skipped} unsichere oder leere Einträge übersprungen.` : undefined });
+      setSelection([folder.id]);
+    });
+
+  const compress = (ids: string[]) =>
+    run(async () => {
+      const zip = await compressNodes(ids, location);
+      if (zip) {
+        setSelection([zip.id]);
+        notify({ kind: 'success', title: `„${zip.name}“ erstellt.`, transient: true });
+      }
+    });
+
+  const newTextFile = () =>
+    run(async () => {
+      if (isTrash) return;
+      const name = await uniqueName(location, 'Neue Textdatei.txt');
+      const node = await createFile(location, name, new Blob([''], { type: 'text/plain' }), 'text/plain');
+      setSelection([node.id]);
+      setRenaming(node.id);
+    });
 
   const newFolder = () =>
     run(async () => {
@@ -288,7 +322,20 @@ export default function FilesApp({ windowId, payload }: AppProps) {
         ]
       : [
           { id: 'open', label: t.system.open, icon: FolderOpen, run: () => open(node) },
-          ...(isZipFile(node) && ids.length === 1 ? [{ id: 'install', label: t.files.openInInstaller, icon: PackageOpen, run: () => sendToInstaller(node) }] : []),
+          ...(ids.length === 1
+            ? openersFor(node)
+                .filter((appId) => appId !== 'installer')
+                .map((appId) => ({ id: `open-${appId}`, label: `Öffnen mit ${APP_META[appId].name}`, icon: ExternalLink, run: () => void openFileWith(node, appId) }))
+            : []),
+          ...(node.kind === 'file' && ids.length === 1 && !openersFor(node).includes('editor') ? [{ id: 'open-editor', label: 'Als Text öffnen', icon: ExternalLink, run: () => void openFileWith(node, 'editor') }] : []),
+          ...(node.kind === 'file' && ids.length === 1 ? [{ id: 'preview', label: 'Vorschau', icon: Eye, run: () => (setSelection([node.id]), setShowPreview(true)) }] : []),
+          ...(isZipFile(node) && ids.length === 1
+            ? [
+                { id: 'extract', label: 'Entpacken', icon: Archive, run: () => void extract(node) },
+                { id: 'install', label: t.files.openInInstaller, icon: PackageOpen, run: () => sendToInstaller(node) },
+              ]
+            : []),
+          { id: 'compress', label: ids.length === 1 ? 'Als ZIP komprimieren' : `${ids.length} Objekte als ZIP komprimieren`, icon: Archive, run: () => void compress(ids) },
           'separator',
           { id: 'rename', label: t.system.rename, icon: Pencil, shortcut: '⌥R', disabled: ids.length !== 1 || special, run: () => setRenaming(node.id) },
           { id: 'cut', label: t.files.cut, icon: Scissors, shortcut: '⌘X', disabled: special, run: () => (clipboard = { mode: 'cut', ids }) },
@@ -307,6 +354,7 @@ export default function FilesApp({ windowId, payload }: AppProps) {
       ? [{ id: 'empty', label: t.files.emptyTrash, icon: Trash2, danger: true, disabled: visible.length === 0, run: () => void doEmptyTrash() }]
       : [
           { id: 'newfolder', label: t.files.newFolder, icon: FolderPlus, shortcut: '⌘⇧N', run: () => void newFolder() },
+          { id: 'newtext', label: 'Neue Textdatei', icon: FilePlus2, run: () => void newTextFile() },
           { id: 'import', label: `${t.files.import} …`, icon: Upload, run: () => void pickAndImport(location) },
           { id: 'paste', label: t.files.paste, icon: ClipboardPaste, shortcut: '⌘V', disabled: !clipboard, run: () => void paste() },
           'separator',

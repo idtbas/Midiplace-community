@@ -29,6 +29,8 @@ import { Kbd, Notice } from '@/ui/Feedback';
 import { Segmented, Switch, TextInput } from '@/ui/Form';
 import { LoginForm } from '@/ui/LoginForm';
 import { asset } from '@/config';
+import { hashPin, validatePin, verifyPin } from '@/system/lock';
+import { useSession } from '@/system/session';
 
 // ---------------------------------------------------------------------------
 // Bausteine
@@ -72,6 +74,21 @@ export function AppearanceSection() {
   const s = useSettings();
   return (
     <>
+      <Group title="Erscheinungsbild">
+        <Row label="Design" hint="„System“ folgt der Einstellung von iPadOS (Hell/Dunkel).">
+          <Segmented
+            label="Design"
+            size="sm"
+            value={s.theme}
+            onChange={(v) => s.set('theme', v)}
+            options={[
+              { value: 'dark', label: 'Dunkel' },
+              { value: 'light', label: 'Hell' },
+              { value: 'system', label: 'System' },
+            ]}
+          />
+        </Row>
+      </Group>
       <Group title="Akzentfarbe" description="Wird sparsam für Auswahl, Fokus und aktive Elemente verwendet.">
         <div className="flex flex-wrap gap-3 p-4">
           {(Object.keys(ACCENTS) as AccentId[]).map((id) => (
@@ -185,6 +202,12 @@ export function DesktopSection() {
           />
         </Row>
         <ToggleRow label="Tippen startet Suche" hint="Tippen auf dem leeren Schreibtisch öffnet die Anwendungssuche." checked={s.typeToSearch} onChange={(v) => s.set('typeToSearch', v)} />
+        <ToggleRow
+          label="Symbole auf dem Schreibtisch"
+          hint="Zeigt den Inhalt des Ordners „Schreibtisch“ (Files → Orte) direkt auf dem Hintergrund."
+          checked={s.desktopIcons}
+          onChange={(v) => s.set('desktopIcons', v)}
+        />
       </Group>
     </>
   );
@@ -765,3 +788,109 @@ export function AboutSection() {
     </>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Sperren & Sitzung
+// ---------------------------------------------------------------------------
+
+function PinForm({ hasPin, close }: { hasPin: boolean; close: () => void }) {
+  const current = useSettings((st) => st.lockPinHash);
+  const set = useSettings((st) => st.set);
+  const [old, setOld] = useState('');
+  const [pin, setPin] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setError(null);
+    if (hasPin && !(await verifyPin(old, current))) return setError('Die bisherige PIN stimmt nicht.');
+    const problem = validatePin(pin);
+    if (problem) return setError(problem);
+    if (pin !== repeat) return setError('Die beiden Eingaben stimmen nicht überein.');
+    setBusy(true);
+    set('lockPinHash', await hashPin(pin));
+    setBusy(false);
+    notify({ kind: 'success', title: hasPin ? 'PIN geändert.' : 'PIN festgelegt. RenOS fragt sie beim Entsperren ab.', transient: true });
+    close();
+  };
+
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      {hasPin ? <TextInput type="password" value={old} onChange={(e) => setOld(e.target.value)} placeholder="Bisherige PIN" aria-label="Bisherige PIN" autoFocus data-testid="pin-old" /> : null}
+      <TextInput type="password" value={pin} onChange={(e) => setPin(e.target.value)} placeholder="Neue PIN oder Passwort (mind. 4 Zeichen)" aria-label="Neue PIN" autoFocus={!hasPin} data-testid="pin-new" />
+      <TextInput type="password" value={repeat} onChange={(e) => setRepeat(e.target.value)} placeholder="Wiederholen" aria-label="PIN wiederholen" data-testid="pin-repeat" />
+      {error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
+      <p className="text-xs text-fg-subtle">Die PIN wird nur als Hash (PBKDF2) auf diesem Gerät gespeichert. Vergessen? Dann hilft nur „RenOS vollständig zurücksetzen“ in den Speicher-Einstellungen.</p>
+      <div className="mt-1 flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={close}>
+          Abbrechen
+        </Button>
+        <Button type="submit" variant="primary" loading={busy} data-testid="pin-save">
+          Speichern
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+const AUTO_LOCK = [0, 1, 5, 15, 30, 60] as const;
+
+export function SessionSection() {
+  const s = useSettings();
+  const hasPin = Boolean(s.lockPinHash);
+  const removePin = async () => {
+    const ok = await confirmDialog({ title: 'PIN entfernen?', message: 'Der Sperrbildschirm lässt sich danach ohne PIN entsperren.', confirmLabel: 'Entfernen', destructive: true });
+    if (ok) s.set('lockPinHash', '');
+  };
+  return (
+    <>
+      <Group title="Sperrbildschirm" description="Sperren mit dem Ein/Aus-Knopf oben rechts oder mit ⌥L. Mit PIN fragt RenOS sie auch nach jedem Start ab.">
+        <Row label="PIN oder Passwort" hint={hasPin ? 'Aktiv – wird beim Entsperren und nach dem Start abgefragt.' : 'Keine – Entsperren mit einem Tipp.'}>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => openDialog({ title: hasPin ? 'PIN ändern' : 'PIN festlegen', render: (close) => <PinForm hasPin={hasPin} close={close} /> })} data-testid="pin-set">
+              {hasPin ? 'Ändern …' : 'Festlegen …'}
+            </Button>
+            {hasPin ? (
+              <Button size="sm" variant="ghost" onClick={() => void removePin()} data-testid="pin-remove">
+                Entfernen
+              </Button>
+            ) : null}
+          </div>
+        </Row>
+        <Row label="Automatisch sperren" hint="Nach so langer Zeit ohne Eingabe. Während ein Spiel im Vordergrund läuft, sperrt RenOS nicht.">
+          <Segmented
+            value={s.autoLockMinutes}
+            onChange={(v) => s.set('autoLockMinutes', v)}
+            options={AUTO_LOCK.map((m) => ({ value: m, label: m === 0 ? 'Nie' : m < 60 ? `${m} min` : '1 h' }))}
+            label="Automatisch sperren"
+          />
+        </Row>
+        <Row label="Jetzt sperren">
+          <Button size="sm" onClick={() => useSession.getState().lock()} data-testid="lock-now">
+            Sperren
+          </Button>
+        </Row>
+      </Group>
+      <Group title="Sitzung">
+        <Row label="Neu starten" hint="Lädt RenOS neu (z. B. nach einem Update).">
+          <Button size="sm" onClick={() => useSession.getState().restart()}>
+            Neu starten
+          </Button>
+        </Row>
+        <Row label="Ausschalten" hint="Schließt alle Fenster und beendet laufende Spiele. Daten bleiben erhalten.">
+          <Button size="sm" variant="danger" onClick={() => useSession.getState().shutdown()}>
+            Ausschalten
+          </Button>
+        </Row>
+      </Group>
+    </>
+  );
+}
+

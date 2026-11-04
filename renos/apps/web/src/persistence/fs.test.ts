@@ -32,7 +32,7 @@ describe('virtual file system', () => {
   it('creates the home folder with standard folders once', async () => {
     await initFileSystem();
     const names = (await listChildren(HOME_ID)).map((n) => n.name).sort();
-    expect(names).toEqual(['Bilder', 'Dokumente', 'Downloads', 'Spielstände']);
+    expect(names).toEqual(['Bilder', 'Dokumente', 'Downloads', 'Schreibtisch', 'Spielstände']);
   });
 
   it('creates, renames and validates folders', async () => {

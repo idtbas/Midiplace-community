@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Rechner -->
+  <rect x="56" y="28" width="144" height="200" rx="20" fill="#5d6167"/>
+  <rect x="74" y="48" width="108" height="40" rx="8" fill="#cdd0d4"/>
+  <g fill="#8d9096">
+    <rect x="74" y="104" width="28" height="24" rx="6"/><rect x="114" y="104" width="28" height="24" rx="6"/>
+    <rect x="74" y="140" width="28" height="24" rx="6"/><rect x="114" y="140" width="28" height="24" rx="6"/>
+    <rect x="74" y="176" width="28" height="24" rx="6"/><rect x="114" y="176" width="28" height="24" rx="6"/>
+  </g>
+  <rect x="154" y="104" width="28" height="96" rx="6" fill="#b4b7bc"/>
+</svg>

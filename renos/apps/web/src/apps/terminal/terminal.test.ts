@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from '@/persistence/db';
-import { HOME_ID, createFolder, createFile, initFileSystem } from '@/persistence/fs';
+import { HOME_ID, createFolder, createFile, initFileSystem, listChildren, listTrash } from '@/persistence/fs';
+import { useWindows } from '@/system/windows';
 import { COMMANDS, complete, findCommand, type Segment, type TerminalContext } from './commands';
 import { splitFlags, tokenize } from './parser';
 
@@ -99,6 +100,49 @@ describe('terminal commands', () => {
     expect(output.pop()).toMatch(/offline/);
     await run('help');
     for (const cmd of COMMANDS) expect(output.join('\n')).toContain(cmd.name);
+  });
+
+  it('creates, renames, moves, copies and trashes files', async () => {
+    await run('touch Dokumente/a.txt neu.txt');
+    expect((await listChildren('documents')).map((n) => n.name)).toContain('a.txt');
+    await run('mv neu.txt umbenannt.txt');
+    await run('mkdir Ziel');
+    await run('mv umbenannt.txt Ziel');
+    await run('cp Dokumente/a.txt Ziel');
+    await run('ls Ziel');
+    const listing = output.pop()!;
+    expect(listing).toContain('umbenannt.txt');
+    expect(listing).toContain('a.txt');
+    await run('mv Ziel/a.txt Dokumente/b.txt');
+    expect((await listChildren('documents')).map((n) => n.name)).toEqual(expect.arrayContaining(['a.txt', 'b.txt']));
+    await run('trash Ziel');
+    expect(output.pop()).toMatch(/Papierkorb/);
+    expect((await listTrash()).map((n) => n.name)).toContain('Ziel');
+    // Systemordner sind geschützt, „rm“ gibt es bewusst nicht.
+    await run('trash Dokumente');
+    expect(output.pop()).toMatch(/Systemordner/);
+    await run('mv Dokumente Bilder');
+    expect(output.pop()).toMatch(/Systemordner/);
+    expect(findCommand('rm')).toBeUndefined();
+  });
+
+  it('calculates and manages windows', async () => {
+    await run('calc 2^10 / 4 + sqrt(16)');
+    expect(output.pop()).toBe('260');
+    await run('calc 1/0');
+    expect(output.pop()).toMatch(/calc: /);
+    useWindows.getState().closeAll();
+    useWindows.getState().open('notes');
+    useWindows.getState().open('calculator');
+    output = [];
+    await run('ps');
+    expect(output.join('\n')).toMatch(/notes[\s\S]*calculator/);
+    await run('kill calculator');
+    expect(Object.values(useWindows.getState().windows).map((w) => w.appId)).toEqual(['notes']);
+    await run('kill 1');
+    expect(Object.keys(useWindows.getState().windows)).toHaveLength(0);
+    await run('kill 7');
+    expect(output.pop()).toMatch(/kein solches Fenster/);
   });
 
   it('completes commands and paths', async () => {

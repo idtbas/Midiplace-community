@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Bell, BellOff, ChevronDown, HardDrive, Server, ServerOff, Settings2, SlidersHorizontal, Wifi, WifiOff } from 'lucide-react';
+import { Bell, BellOff, ChevronDown, HardDrive, Lock, Power, PowerOff, RotateCw, Server, ServerOff, Settings2, SlidersHorizontal, Wifi, WifiOff } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { t, locale } from '@/i18n';
 import { cn } from '@/lib/cn';
@@ -11,6 +11,8 @@ import { showMenuAt, type MenuEntry } from '@/system/contextMenu';
 import { useNotifications } from '@/system/notifications';
 import { useSettings } from '@/system/settings';
 import { useShell } from '@/system/shell';
+import { useSession } from '@/system/session';
+import { confirmDialog } from '@/system/dialogs';
 import { formatCombo } from '@/system/shortcuts';
 import { useWindows } from '@/system/windows';
 import { RenosMark } from '@/ui/AppIcon';
@@ -116,7 +118,7 @@ export function TopBar() {
 
   return (
     <header
-      className="os-chrome absolute inset-x-0 top-0 flex items-center justify-between bg-[#0c0f14]/88 px-1.5 text-sm"
+      className="os-chrome theme-dark absolute inset-x-0 top-0 flex items-center justify-between bg-[#0c0f14]/88 px-1.5 text-sm"
       style={{ height: 'var(--topbar-h)', paddingTop: 'var(--safe-top)', zIndex: 5000, boxSizing: 'content-box' }}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -172,7 +174,42 @@ export function TopBar() {
         <BarButton label={`${t.topbar.settings} (${formatCombo('Alt+,')})`} onClick={() => openApp('settings')}>
           <Settings2 size={15} strokeWidth={2} />
         </BarButton>
+        <BarButton label="Ein/Aus" onClick={(e) => showPowerMenu(e.currentTarget)} id="renos-power-button">
+          <Power size={15} strokeWidth={2} />
+        </BarButton>
       </div>
     </header>
   );
 }
+
+/** Ein/Aus-Menü: Sperren, Neu starten, Ausschalten. */
+function showPowerMenu(anchor: HTMLElement) {
+  const session = useSession.getState();
+  const openWindows = Object.keys(useWindows.getState().windows).length;
+  showMenuAt(
+    anchor,
+    [
+      { id: 'lock', label: 'Sperren', icon: Lock, shortcut: formatCombo('Alt+L'), run: () => session.lock() },
+      'separator',
+      { id: 'restart', label: 'Neu starten …', icon: RotateCw, run: () => void confirmPower('restart', openWindows) },
+      { id: 'shutdown', label: 'Ausschalten …', icon: PowerOff, danger: true, run: () => void confirmPower('shutdown', openWindows) },
+    ],
+    'right',
+  );
+}
+
+async function confirmPower(action: 'restart' | 'shutdown', openWindows: number) {
+  const restart = action === 'restart';
+  const ok = await confirmDialog({
+    title: restart ? 'RenOS neu starten?' : 'RenOS ausschalten?',
+    message: restart
+      ? 'RenOS wird neu geladen. Offene Fenster werden – wenn eingestellt – wiederhergestellt; laufende Spiele werden beendet.'
+      : `${openWindows ? `${openWindows} offene${openWindows === 1 ? 's Fenster wird' : ' Fenster werden'} geschlossen, laufende Spiele beendet. ` : ''}Deine Dateien, Notizen und Spielstände bleiben erhalten.`,
+    confirmLabel: restart ? 'Neu starten' : 'Ausschalten',
+    destructive: !restart,
+  });
+  if (!ok) return;
+  if (restart) useSession.getState().restart();
+  else useSession.getState().shutdown();
+}
+

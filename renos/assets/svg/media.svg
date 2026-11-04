@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Medien: Note und Play-Symbol -->
+  <circle cx="128" cy="128" r="92" fill="#5d6167"/>
+  <circle cx="128" cy="128" r="72" fill="#4c5055"/>
+  <path d="M110 92c0-6 6.5-9.7 11.7-6.6l50 29c5.2 3 5.2 10.5 0 13.5l-50 29c-5.2 3-11.7-.7-11.7-6.7z" fill="#cdd0d4"/>
+</svg>

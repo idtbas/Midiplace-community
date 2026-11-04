@@ -64,6 +64,7 @@ Ren’Py-Spiele bestehen aus der Engine (für Windows, Linux oder Mac kompiliert
 - **Bilder, Musik, Stimmen, Videos** werden beim Spielen aus dem iPad-Speicher **nachgeladen** (Ren’Pys „Progressive Downloading“) – auch mehrere Gigabyte große Spiele brauchen so nur wenig Arbeitsspeicher.
 - **`.rpa`-Archive** (RPA-3.0, 2.0, 1.0) werden nicht entpackt: RenOS liest ihr Inhaltsverzeichnis und liefert Dateien direkt als Ausschnitt des Archivs – kein doppelter Speicherbedarf. Archive, die nur Skripte enthalten, werden nach der Umwandlung gelöscht.
 - **Offline:** Laufzeit und Spiel liegen auf dem iPad; umgewandelte Spiele starten ohne Internet.
+- **Ältere Installationen:** Verbesserungen der Umwandlung wirken auch für bereits installierte Spiele. RenOS bringt die `game.zip` beim Start auf den neuen Stand (z. B. `.rpy` neben `.rpyc` weglassen, Platzhalter in echter Bildgröße, Ersatz-Module) – ohne Neuinstallation und ohne zusätzlichen Speicher.
 - **Library:** zeigt bei umgewandelten Spielen Herkunft, Spielversion und Laufzeit; **Settings → Spiele** zeigt die installierten Laufzeiten.
 
 Die Laufzeitpakete entstehen beim Veröffentlichen auf GitHub aus den offiziellen Ren’Py-SDKs von renpy.org (unverändert; Ren’Py steht unter der MIT-Lizenz, enthaltene Bibliotheken u. a. unter LGPL). Jedes Paket enthält die `LICENSE.txt` des SDK (`renos/runtimes/renpy-<version>/LICENSE.txt`).

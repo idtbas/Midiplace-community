@@ -3,7 +3,28 @@ import { locale } from '@/i18n';
 import { browserName, displayModeLabel, hasFinePointer, isStandalone } from '@/lib/platform';
 import { formatDateTime } from '@/lib/format';
 import type { FsNode } from '@/persistence/db';
-import { HOME_ID, createFolder, displayPath, isTextFile, listChildren, readBlob, resolvePath } from '@/persistence/fs';
+import {
+  FsError,
+  HOME_ID,
+  copyNodes,
+  createFile,
+  createFolder,
+  displayPath,
+  isSpecialFolder,
+  isTextFile,
+  listChildren,
+  moveNodes,
+  readBlob,
+  renameNode,
+  resolvePath,
+  trashNodes,
+  usage,
+} from '@/persistence/fs';
+import { CalcError, evaluate, formatResult } from '@/lib/calc';
+import { openFilesAt } from '@/system/actions';
+import { openFileWith } from '@/system/fileTypes';
+import { useSession } from '@/system/session';
+import { useWindows } from '@/system/windows';
 import type { AppId } from '@/system/appIds';
 import { APP_META } from '@/system/appMeta';
 import { APP_IDS } from '@/system/appIds';
@@ -49,7 +70,45 @@ const APP_ALIASES: Record<string, AppId> = {
   terminal: 'terminal',
   notes: 'notes',
   notizen: 'notes',
+  editor: 'editor',
+  texteditor: 'editor',
+  viewer: 'viewer',
+  bilder: 'viewer',
+  media: 'media',
+  medien: 'media',
+  calculator: 'calculator',
+  rechner: 'calculator',
+  clock: 'clock',
+  uhr: 'clock',
+  monitor: 'monitor',
+  systemmonitor: 'monitor',
 };
+
+/** Teilt „ordner/name“ in den übergeordneten Pfad und den letzten Namen. */
+function splitTarget(path: string): { parent: string; name: string } {
+  const trimmed = path.replace(/\/+$/, '');
+  const slash = trimmed.lastIndexOf('/');
+  if (slash < 0) return { parent: '.', name: trimmed };
+  return { parent: trimmed.slice(0, slash) || '/', name: trimmed.slice(slash + 1) };
+}
+
+function errorText(error: unknown): string {
+  return error instanceof FsError ? error.message : (error as Error)?.message || 'Fehler';
+}
+
+/** Löst mehrere Pfade auf; meldet nicht gefundene. */
+async function resolveAll(name: string, paths: string[], ctx: TerminalContext): Promise<FsNode[] | null> {
+  const nodes: FsNode[] = [];
+  for (const path of paths) {
+    const node = await resolvePath(path, ctx.cwdId);
+    if (!node) {
+      ctx.print(`${name}: ${path}: Datei oder Ordner nicht gefunden`, 'error');
+      return null;
+    }
+    nodes.push(node);
+  }
+  return nodes;
+}
 
 function sortNodes(nodes: FsNode[]): FsNode[] {
   return [...nodes].sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, locale) : a.kind === 'folder' ? -1 : 1));
@@ -182,6 +241,158 @@ export const COMMANDS: Command[] = [
       }
     },
   },
+  {
+    name: 'touch',
+    summary: 'Legt eine leere Textdatei an',
+    usage: 'touch <datei> …',
+    run: async (args, ctx) => {
+      if (args.length === 0) return ctx.print('touch: Dateiname fehlt', 'error');
+      for (const path of args) {
+        if (await resolvePath(path, ctx.cwdId)) continue;
+        const { parent, name } = splitTarget(path);
+        const dir = await resolvePath(parent, ctx.cwdId);
+        if (!dir || dir.kind !== 'folder') {
+          ctx.print(`touch: ${path}: Ordner nicht gefunden`, 'error');
+          continue;
+        }
+        try {
+          await createFile(dir.id, name, new Blob([''], { type: 'text/plain' }), 'text/plain');
+        } catch (error) {
+          ctx.print(`touch: ${path}: ${errorText(error)}`, 'error');
+        }
+      }
+    },
+  },
+  {
+    name: 'mv',
+    summary: 'Verschiebt oder benennt um',
+    usage: 'mv <quelle> … <ziel>   (Ziel = Ordner oder neuer Name)',
+    run: async (args, ctx) => {
+      if (args.length < 2) return ctx.print('mv: Quelle und Ziel angeben', 'error');
+      const targetPath = args[args.length - 1]!;
+      const sources = await resolveAll('mv', args.slice(0, -1), ctx);
+      if (!sources) return;
+      const special = sources.find((n) => isSpecialFolder(n.id));
+      if (special) return ctx.print(`mv: ${special.name}: Systemordner können nicht verschoben werden`, 'error');
+      const target = await resolvePath(targetPath, ctx.cwdId);
+      try {
+        if (target?.kind === 'folder') return await moveNodes(sources.map((n) => n.id), target.id);
+        if (sources.length > 1) return ctx.print(`mv: ${targetPath}: Ordner nicht gefunden`, 'error');
+        if (target) return ctx.print(`mv: ${targetPath}: existiert bereits`, 'error');
+        // Neuer Name (ggf. in einem anderen Ordner).
+        const { parent, name } = splitTarget(targetPath);
+        const dir = await resolvePath(parent, ctx.cwdId);
+        if (!dir || dir.kind !== 'folder') return ctx.print(`mv: ${targetPath}: Ordner nicht gefunden`, 'error');
+        const source = sources[0]!;
+        if (source.parentId !== dir.id) await moveNodes([source.id], dir.id);
+        await renameNode(source.id, name);
+      } catch (error) {
+        ctx.print(`mv: ${errorText(error)}`, 'error');
+      }
+    },
+  },
+  {
+    name: 'cp',
+    summary: 'Kopiert Dateien und Ordner in einen Ordner',
+    usage: 'cp <quelle> … <zielordner>',
+    run: async (args, ctx) => {
+      if (args.length < 2) return ctx.print('cp: Quelle und Zielordner angeben', 'error');
+      const sources = await resolveAll('cp', args.slice(0, -1), ctx);
+      if (!sources) return;
+      const target = await resolvePath(args[args.length - 1]!, ctx.cwdId);
+      if (!target || target.kind !== 'folder') return ctx.print(`cp: ${args[args.length - 1]}: Zielordner nicht gefunden`, 'error');
+      try {
+        await copyNodes(sources.map((n) => n.id), target.id);
+      } catch (error) {
+        ctx.print(`cp: ${errorText(error)}`, 'error');
+      }
+    },
+  },
+  {
+    name: 'trash',
+    summary: 'Legt Dateien oder Ordner in den Papierkorb',
+    usage: 'trash <pfad> …   (wiederherstellen in Files → Papierkorb)',
+    run: async (args, ctx) => {
+      if (args.length === 0) return ctx.print('trash: Pfad angeben', 'error');
+      const nodes = await resolveAll('trash', args, ctx);
+      if (!nodes) return;
+      const special = nodes.find((n) => isSpecialFolder(n.id));
+      if (special) return ctx.print(`trash: ${special.name}: Systemordner können nicht gelöscht werden`, 'error');
+      await trashNodes(nodes.map((n) => n.id));
+      ctx.print(nodes.length === 1 ? '1 Element im Papierkorb.' : `${nodes.length} Elemente im Papierkorb.`, 'muted');
+    },
+  },
+  {
+    name: 'ps',
+    summary: 'Listet die geöffneten Fenster (Apps)',
+    run: (_args, ctx) => {
+      const { windows, order, focusedId } = useWindows.getState();
+      const list = [...order].map((id) => windows[id]).filter((w): w is NonNullable<typeof w> => Boolean(w));
+      if (list.length === 0) return ctx.print('Keine Fenster geöffnet.', 'muted');
+      ctx.print([{ text: 'NR  APP          STATUS        TITEL', tone: 'muted' }]);
+      list.forEach((w, i) => {
+        const status = w.minimized ? 'minimiert' : w.id === focusedId ? 'aktiv' : 'geöffnet';
+        ctx.print([{ text: String(i + 1).padStart(2) + '  ', tone: 'muted' }, { text: w.appId.padEnd(13), tone: 'accent' }, { text: status.padEnd(14), tone: 'muted' }, { text: w.title }]);
+      });
+    },
+  },
+  {
+    name: 'kill',
+    summary: 'Schließt ein Fenster (Nummer aus „ps“) oder alle Fenster einer App',
+    usage: 'kill <nr | app>',
+    run: (args, ctx) => {
+      const target = args[0];
+      if (!target) return ctx.print('kill: Nummer oder App angeben (siehe „ps“)', 'error');
+      const { windows, order, close } = useWindows.getState();
+      const list = [...order].map((id) => windows[id]).filter((w): w is NonNullable<typeof w> => Boolean(w));
+      const index = /^\d+$/.test(target) ? Number(target) - 1 : -1;
+      const app = APP_ALIASES[target.toLowerCase()] ?? (APP_IDS as readonly string[]).find((id) => id === target.toLowerCase());
+      const victims = index >= 0 ? list.slice(index, index + 1) : list.filter((w) => w.appId === app);
+      if (victims.length === 0) return ctx.print(`kill: ${target}: kein solches Fenster`, 'error');
+      for (const w of victims) close(w.id);
+      ctx.print(victims.length === 1 ? `„${victims[0]!.title}“ geschlossen.` : `${victims.length} Fenster geschlossen.`, 'muted');
+    },
+  },
+  {
+    name: 'df',
+    summary: 'Zeigt die Speicherbelegung',
+    run: async (_args, ctx) => {
+      const files = await usage();
+      ctx.print([{ text: 'Files       ', tone: 'accent' }, { text: `${formatBytes(files.bytes)} in ${files.files} Dateien, ${files.folders} Ordnern` }]);
+      try {
+        const est = await navigator.storage?.estimate?.();
+        if (est?.quota) {
+          const used = est.usage ?? 0;
+          ctx.print([{ text: 'RenOS       ', tone: 'accent' }, { text: `${formatBytes(used)} von ${formatBytes(est.quota)} belegt (${Math.round((used / est.quota) * 100)} %)` }]);
+          ctx.print([{ text: 'Frei        ', tone: 'accent' }, { text: formatBytes(Math.max(0, est.quota - used)) }]);
+        }
+      } catch {
+        /* Schätzung nicht verfügbar */
+      }
+    },
+  },
+  {
+    name: 'calc',
+    summary: 'Rechnet einen Ausdruck aus',
+    usage: 'calc <ausdruck>   z. B. calc 2^10 / 3 + sqrt(16)',
+    run: (args, ctx) => {
+      const expr = args.join(' ').trim();
+      if (!expr) return ctx.print('calc: Ausdruck fehlt', 'error');
+      try {
+        ctx.print(formatResult(evaluate(expr)), 'success');
+      } catch (error) {
+        ctx.print(`calc: ${error instanceof CalcError ? error.message : 'Ungültiger Ausdruck'}`, 'error');
+      }
+    },
+  },
+  {
+    name: 'lock',
+    summary: 'Sperrt den Bildschirm',
+    run: (_args, ctx) => {
+      ctx.print('Bildschirm wird gesperrt …', 'muted');
+      useSession.getState().lock();
+    },
+  },
   { name: 'echo', summary: 'Gibt Text aus', usage: 'echo [text …]', run: (args, ctx) => ctx.print(args.join(' ')) },
   { name: 'version', summary: 'Zeigt die RenOS-Version', run: (_args, ctx) => ctx.print(`RenOS ${RENOS_VERSION} · Terminal rsh ${RENOS_VERSION}`) },
   {
@@ -212,8 +423,8 @@ export const COMMANDS: Command[] = [
   },
   {
     name: 'open',
-    summary: 'Öffnet eine App oder startet ein Spiel',
-    usage: 'open <app | spieltitel>',
+    summary: 'Öffnet eine App, eine Datei, einen Ordner oder startet ein Spiel',
+    usage: 'open <app | datei | ordner | spieltitel>',
     run: async (args, ctx) => {
       const target = args.join(' ').trim();
       if (!target) return ctx.print('open: App oder Spiel angeben, z. B. „open files“', 'error');
@@ -221,6 +432,16 @@ export const COMMANDS: Command[] = [
       if (app) {
         ctx.openApp(app);
         return ctx.print(`${APP_META[app].name} wird geöffnet …`, 'muted');
+      }
+      // Datei oder Ordner (relativ zum aktuellen Ordner): in der passenden App bzw. in Files.
+      const node = args.length === 1 || /[/.~]/.test(target) ? await resolvePath(args.length === 1 ? args[0]! : target, ctx.cwdId) : null;
+      if (node) {
+        if (node.kind === 'folder') {
+          openFilesAt(node.id);
+          return ctx.print(`${node.name} wird in Files geöffnet …`, 'muted');
+        }
+        if (openFileWith(node)) return ctx.print(`${node.name} wird geöffnet …`, 'muted');
+        return ctx.print(`open: ${node.name}: Keine App für diesen Dateityp – in Files gibt es eine Vorschau.`, 'error');
       }
       const { games, error } = await ctx.loadGames();
       const q = target.toLowerCase();
@@ -265,7 +486,7 @@ export const COMMANDS: Command[] = [
         ['Anzeige', `${window.screen.width}×${window.screen.height} @${window.devicePixelRatio}x · Fenster ${window.innerWidth}×${window.innerHeight}`],
         ['Eingabe', hasFinePointer() ? 'Zeiger (Trackpad/Maus) + Tastatur' : 'Touch'],
         ['Shell', `rsh ${RENOS_VERSION}`],
-        ['Design', `Dunkel · Akzent ${ACCENTS[ctx.accent].label}`],
+        ['Design', `${document.documentElement.dataset.theme === 'light' ? 'Hell' : 'Dunkel'} · Akzent ${ACCENTS[ctx.accent].label}`],
         ['Sitzung', formatUptime(Date.now() - ctx.sessionStart)],
         ['Apps', String(APP_IDS.filter((id) => APP_META[id].showInLauncher).length)],
         ['Spiele', error ? 'nicht verfügbar' : String(games.length)],
