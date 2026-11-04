@@ -15,7 +15,7 @@
  */
 import { Inflate } from 'fflate';
 import { crc32 } from './crc32';
-import { CLASSIFY_LIMITS, Classifier, PLACEHOLDER_PNG, escapeHtml, mediaKind, remoteFilesText, skipGameFile } from './desktop';
+import { CLASSIFY_LIMITS, Classifier, PLACEHOLDER_PNG, escapeHtml, mediaKind, placeholderPng, remoteFilesText, skipGameFile } from './desktop';
 import { IMAGE_HEADER_BYTES, imageSize } from './imageSize';
 import { gameDirectory } from './opfs';
 import { directoryMaker, openSink, writeChunks } from './opfsWrite';
@@ -67,13 +67,42 @@ export interface ConvertReport {
 
 export const WEB_MANIFEST = 'renos-web.json';
 
-const WEBSTUB = `# RenOS: Ersatz für Browser-Module aus Pyodide/PyScript (js, pyodide, pyodide_js, pyscript, micropip),
-# die manche Spiele für optionale Web-Funktionen importieren. Die Ren'Py-Web-Laufzeit hat sie nicht.
+const WEB_SUPPORT_RPY = `# RenOS: Ergänzungen für Spiele, die aus Windows-/Linux-Builds umgewandelt wurden.
+init -1600 python:
+    def _renos_web_file_fallback(orig):
+        def fallback(fn, *args, **kwargs):
+            try:
+                return orig(fn, *args, **kwargs)
+            except renpy.webloader.DownloadNeeded as e:
+                if e.rtype != "image":
+                    raise
+                import os
+                renpy.webloader.enqueue(e.relpath, "image", fn)
+                return open(os.path.join("_placeholders", e.relpath), "rb")
+        fallback._renos = True
+        return fallback
+
+    if renpy.emscripten:
+        # Import-Hook für Desktop-/Browser-Module, die es in der Web-Laufzeit nicht gibt.
+        try:
+            import _renos_webstub
+        except Exception:
+            pass
+        import renpy.exports as _renos_exports
+        for _renos_name in ("file", "open_file"):
+            _renos_orig = getattr(_renos_exports, _renos_name, None)
+            if _renos_orig is not None and not getattr(_renos_orig, "_renos", False):
+                setattr(_renos_exports, _renos_name, _renos_web_file_fallback(_renos_orig))
+`;
+
+const WEBSTUB = `# RenOS: Ersatz für Module, die es in der Ren'Py-Web-Laufzeit nicht gibt: Browser-Module aus
+# Pyodide/PyScript (js, pyodide, …) und Desktop-Module (Dateidialoge _renpytfd, Steam, Discord),
+# die manche Spiele für optionale Funktionen importieren. Die Ren'Py-Web-Laufzeit hat sie nicht.
 # Alle Attribute und Aufrufe liefern ein leeres, „falsches“ Objekt; Untermodule entstehen automatisch.
 import sys
 import types
 
-PREFIXES = ("js", "pyodide", "pyodide_js", "pyscript", "micropip")
+PREFIXES = ("js", "pyodide", "pyodide_js", "pyscript", "micropip", "_renpytfd", "_renpysteam", "steamworks", "pypresence")
 
 
 class _JsProxy(object):
@@ -337,6 +366,19 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
   for (const [rel, entry] of loose) table.set(rel, { kind: 'loose', entry });
 
   log(`Prüfe ${table.size} Dateien (sofort laden oder bei Bedarf) …`);
+  // Quelltext weglassen, wenn die kompilierte Fassung da ist (wie in Web-/Mobil-Builds): Ren'Py lädt dann
+  // die .rpyc, statt den Quelltext neu zu übersetzen – das scheitert sonst bei Spielen mit eigener Syntax
+  // (z. B. Student Transfer) und kostet Startzeit und Speicher.
+  let droppedSources = 0;
+  for (const rel of [...table.keys()]) {
+    const lower = rel.toLowerCase();
+    if ((lower.endsWith('.rpy') && table.has(`${rel}c`)) || (lower.endsWith('.rpym') && table.has(`${rel}c`))) {
+      table.delete(rel);
+      droppedSources += 1;
+    }
+  }
+  if (droppedSources) log(`${droppedSources} Quelltexte (.rpy) ausgelassen – die kompilierten .rpyc werden verwendet`);
+
   // 4. Einteilen: sofort laden (game.zip) oder bei Bedarf.
   const classifier = new Classifier(CLASSIFY_LIMITS);
   const remote = new Map<string, string>();
@@ -449,17 +491,25 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     for (const dir of [...remoteDirs].sort()) {
       if (!writer.has(dir)) await writer.addRaw({ name: dir, method: 0, crc: 0, compressedSize: 0, uncompressedSize: 0, data: [] });
     }
-    const placeholderCrc = crc32(PLACEHOLDER_PNG);
+    // Platzhalter in der echten Bildgröße (transparent, wenige hundert Bytes): Spiele, die die Größe
+    // eines Bildes selbst aus der Datei lesen, bekommen so schon vor dem Nachladen richtige Maße.
+    const placeholders = new Map<string, { data: Uint8Array; crc: number }>();
     for (const [rel, meta] of remote) {
       if (!meta.startsWith('image ')) continue;
-      await writer.addRaw({
-        name: `_placeholders/${rel}`,
-        method: 0,
-        crc: placeholderCrc,
-        compressedSize: PLACEHOLDER_PNG.byteLength,
-        uncompressedSize: PLACEHOLDER_PNG.byteLength,
-        data: [PLACEHOLDER_PNG],
-      });
+      const [w, h] = meta.slice(6).split(',').map(Number);
+      const key = `${w}x${h}`;
+      let ph = placeholders.get(key);
+      if (!ph) {
+        const data = w && h ? placeholderPng(w, h) : PLACEHOLDER_PNG;
+        ph = { data, crc: crc32(data) };
+        placeholders.set(key, ph);
+      }
+      await writer.addRaw({ name: `_placeholders/${rel}`, method: 0, crc: ph.crc, compressedSize: ph.data.byteLength, uncompressedSize: ph.data.byteLength, data: [ph.data] });
+    }
+    // renpy.file()/renpy.open_file() des Spiels: bei noch nicht geladenen Bildern den Platzhalter liefern
+    // (und das Bild nachladen), statt mit DownloadNeeded abzubrechen.
+    if (!writer.has('game/renos_web_support.rpy') && !table.has('renos_web_support.rpy')) {
+      await writer.addBytes('game/renos_web_support.rpy', new TextEncoder().encode(WEB_SUPPORT_RPY));
     }
     await writer.addBytes('game/renpyweb_remote_files.txt', new TextEncoder().encode(remoteFilesText(remote)));
     // Ersatz für Browser-Module aus Pyodide/PyScript (js, pyodide, …), falls das Spiel sie importiert und
@@ -467,7 +517,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     const own = (name: string) => [...table.keys()].some((p) => new RegExp(`(^|/)${name}(\\.py|/__init__\\.py)$`, 'i').test(p));
     const enc = new TextEncoder();
     const stubs: Array<[string, string]> = [['_renos_webstub.py', WEBSTUB]];
-    for (const name of ['js', 'pyodide_js', 'pyscript', 'micropip']) if (!own(name)) stubs.push([`${name}.py`, WEBSTUB_ENTRY]);
+    for (const name of ['js', 'pyodide_js', 'pyscript', 'micropip', '_renpytfd', '_renpysteam', 'steamworks', 'pypresence']) if (!own(name)) stubs.push([`${name}.py`, WEBSTUB_ENTRY]);
     if (!own('pyodide')) stubs.push(['pyodide/__init__.py', WEBSTUB_ENTRY]);
     for (const [name, text] of stubs) {
       for (const target of [name, `game/python-packages/${name}`]) {

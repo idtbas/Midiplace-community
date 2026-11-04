@@ -12,6 +12,7 @@ import {
   detectPython,
   mediaKind,
   parseEngineVersion,
+  placeholderPng,
   remoteFilesText,
   skipGameFile,
 } from './desktop';
@@ -123,6 +124,10 @@ describe('Bildgröße aus dem Dateikopf', () => {
     new DataView(png.buffer).setUint32(20, 1080);
     expect(imageSize(png)).toEqual({ width: 1920, height: 1080 });
     expect(imageSize(PLACEHOLDER_PNG)).toEqual({ width: 1, height: 1 });
+    // Platzhalter in Originalgröße: korrekte Maße, trotzdem winzig.
+    const ph = placeholderPng(1920, 1080);
+    expect(imageSize(ph)).toEqual({ width: 1920, height: 1080 });
+    expect(ph.byteLength).toBeLessThan(2048);
 
     const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x02, 0xd0, 0x05, 0x00, 0x03, 0, 0, 0, 0]);
     expect(imageSize(jpeg)).toEqual({ width: 1280, height: 720 });
