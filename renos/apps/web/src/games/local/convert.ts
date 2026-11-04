@@ -67,6 +67,47 @@ export interface ConvertReport {
 
 export const WEB_MANIFEST = 'renos-web.json';
 
+const JS_STUB = `# RenOS: Ersatz für das Browser-Modul „js“ (Pyodide), das manche Spiele für optionale
+# Web-Funktionen importieren. Die Ren'Py-Web-Laufzeit hat es nicht; alle Aufrufe tun nichts.
+class _JsProxy(object):
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _JsProxy()
+
+    def __call__(self, *args, **kwargs):
+        return _JsProxy()
+
+    def __getitem__(self, key):
+        return _JsProxy()
+
+    def __setitem__(self, key, value):
+        pass
+
+    def __bool__(self):
+        return False
+
+    __nonzero__ = __bool__
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self):
+        return 0
+
+    def __str__(self):
+        return ""
+
+
+window = document = console = globalThis = navigator = localStorage = _JsProxy()
+
+
+def __getattr__(name):
+    if name.startswith("__"):
+        raise AttributeError(name)
+    return _JsProxy()
+`;
+
 /** Verzeichnis für RenOS: Datei → [Archiv, Präfix (Base64), [[Position, Länge], …]]. */
 export interface WebManifest {
   format: 1;
@@ -372,6 +413,12 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
       });
     }
     await writer.addBytes('game/renpyweb_remote_files.txt', new TextEncoder().encode(remoteFilesText(remote)));
+    // Ersatz für das Browser-Modul „js“, falls das Spiel keins mitbringt (sonst „No module named 'js'“).
+    if (![...table.keys()].some((p) => /(^|\/)js(\.py|\/__init__\.py)$/i.test(p))) {
+      const stub = new TextEncoder().encode(JS_STUB);
+      await writer.addBytes('js.py', stub);
+      if (!writer.has('game/python-packages/js.py')) await writer.addBytes('game/python-packages/js.py', stub);
+    }
     // Ren'Py 7 (renpyweb) liest das Startbild aus der game.zip.
     if (presplash && runtime.generation === 'renpyweb') await writer.addBytes(`web-presplash.${presplashExt}`, new Uint8Array(await presplash.arrayBuffer()));
     await writer.finish();

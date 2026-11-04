@@ -971,7 +971,8 @@
       if (done) return;
       try {
         var status = document.getElementById('statusTextDiv');
-        var text = status ? status.textContent || '' : '';
+        // Farbcodes (ANSI) aus Ren'Pys Fehlermeldungen entfernen.
+        var text = (status ? status.textContent || '' : '').replace(new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g"), "");
         if (/More information may be available|aborted unexpectedly|exited unexpectedly/i.test(text)) {
           done = true;
           bridge({ type: 'error', message: text.slice(-400) });
