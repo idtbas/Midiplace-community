@@ -40,6 +40,8 @@ export interface ConvertParams {
   maxBytes: number;
   isCancelled: () => boolean;
   progress: (bytesWritten: number, filesWritten: number) => void;
+  /** Abschnitte ohne Schreibfortschritt (z. B. Prüfen der Dateien) melden. */
+  stage?: (stage: 'scan', done: number, total: number) => void;
 }
 
 export interface ConvertReport {
@@ -90,6 +92,38 @@ async function readHead(file: File, entry: ZipEntry, max: number): Promise<Uint8
     total += parts[parts.length - 1]!.byteLength;
     if (total >= max) break;
   }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out;
+}
+
+/**
+ * Dateianfang schnell lesen: nur ein kleiner Ausschnitt der (ggf. komprimierten) Daten, ohne
+ * Prüfsumme und ohne einen laufenden Entpack-Strom abbrechen zu müssen (das kann in Safari hängen).
+ */
+async function readHeadFast(file: File, entry: ZipEntry, max: number): Promise<Uint8Array> {
+  const start = await entryDataStart(file, entry);
+  if (entry.method === 0) return new Uint8Array(await file.slice(start, start + Math.min(max, entry.compressedSize)).arrayBuffer());
+  // Deflate: max Bytes Ausgabe brauchen höchstens etwa max Bytes Eingabe (+ Reserve).
+  const input = file.slice(start, start + Math.min(entry.compressedSize, max + 65_536));
+  const reader = input.stream().pipeThrough(new DecompressionStream('deflate-raw') as unknown as TransformStream<Uint8Array, Uint8Array>).getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < max) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      parts.push(value.slice(0, max - total));
+      total += parts[parts.length - 1]!.byteLength;
+    }
+  } catch {
+    /* abgeschnittene Eingabe – was bis dahin entpackt wurde, reicht */
+  }
+  void reader.cancel().catch(() => undefined);
   const out = new Uint8Array(total);
   let at = 0;
   for (const p of parts) {
@@ -198,15 +232,18 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
   const remote = new Map<string, string>();
   const placement = new Map<string, 'local' | 'remote'>();
   let unsizedImages = 0;
+  let scanned = 0;
   for (const [rel, source] of table) {
     abortIfCancelled(params);
+    scanned += 1;
+    if (scanned % 25 === 0) params.stage?.('scan', scanned, table.size);
     const size = source.kind === 'loose' ? source.entry.size : source.member.size;
     const decision = await classifier.place(rel, size, async () => {
-      // Erst wenige Bytes lesen (PNG/WebP/AVIF), nur bei JPEG mit großen Metadaten mehr.
-      for (const bytes of [4096, 65_536, IMAGE_HEADER_BYTES]) {
+      // Grob und schnell: erst 4 KB (PNG/WebP/AVIF), nur bei JPEG mit großen Metadaten einmal mehr.
+      for (const bytes of [4096, IMAGE_HEADER_BYTES]) {
         const head =
           source.kind === 'loose'
-            ? await readHead(file, source.entry.entry, bytes)
+            ? await readHeadFast(file, source.entry.entry, bytes)
             : new Uint8Array(await memberBlob(archiveFiles[source.archive]!, source.member).slice(0, bytes).arrayBuffer());
         const dims = imageSize(head);
         if (dims) return dims;
@@ -218,6 +255,8 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     placement.set(rel, decision.kind);
     if (decision.kind === 'remote') remote.set(rel, decision.meta);
   }
+
+  params.stage?.('scan', table.size, table.size);
 
   // 5. Nachladbare lose Dateien ins OPFS kopieren.
   for (const [rel, kind] of placement) {

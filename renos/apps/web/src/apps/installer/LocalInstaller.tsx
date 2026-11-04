@@ -239,7 +239,14 @@ export function LocalInstaller({ payload }: AppProps) {
     );
   } else if (phase.name === 'installing') {
     const ratio = Math.min(phase.bytes / (phase.total || 1), 1);
-    const label = phase.step === 'runtime' ? t.installer.convert.stepRuntime : phase.step === 'convert' ? t.installer.convert.stepConvert : t.installer.installing;
+    const label =
+      phase.step === 'runtime'
+        ? t.installer.convert.stepRuntime
+        : phase.step === 'scan'
+          ? t.installer.convert.stepScan
+          : phase.step === 'convert'
+            ? t.installer.convert.stepConvert
+            : t.installer.installing;
     content = (
       <div className="py-8" data-testid="installer-installing" data-step={phase.step}>
         <div className="flex items-center justify-between text-base">
@@ -249,7 +256,7 @@ export function LocalInstaller({ payload }: AppProps) {
         <ProgressBar className="mt-3" value={ratio} label={label} />
         <p className="tabular mt-2 text-sm text-fg-subtle">
           {phase.step === 'copy' ? `${phase.files} / ${phase.analysis.fileCount} ${t.installer.facts.files} · ` : ''}
-          {formatBytes(phase.bytes)} / {formatBytes(phase.total)}
+          {phase.step === 'scan' ? `${phase.bytes} / ${phase.total} ${t.installer.facts.files}` : `${formatBytes(phase.bytes)} / ${formatBytes(phase.total)}`}
         </p>
         <p className="mt-2 text-sm text-fg-subtle">{t.installer.keepOpen}</p>
         <div className="mt-6 flex justify-end">
