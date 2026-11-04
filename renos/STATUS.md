@@ -25,7 +25,8 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 | Backend | Auth (scrypt, Sessions, CSRF, Origin, Rate Limit), ZIP-Sicherheit, atomare Installation, Game-Host, Cover, Aufräumen | 52 Server-Tests |
 | Lokaler Modus | RenOS ohne Server (GitHub Pages): Installation auf dem Gerät (OPFS), Browser-ZIP-Leser mit ZIP64/CRC, statischer Spiele-Host mit Service Worker, Einstellungen für den Spiele-Host | Unit + E2E `e2e/local` inkl. echter Ren’Py-Laufzeit |
 | Große Spiele | 3,2-GB-Archiv lokal installiert (~30 s, +30 MB Speicher); Server-Limits 16 GB Upload / 32 GB entpackt | manuelle Messung in Chromium |
-| GitHub | Pages-Workflow (RenOS + Spiele-Host), CI-Workflow mit allen Tests | Workflows angelegt, Ausführung siehe Actions |
+| GitHub | CI-Workflow mit allen Tests (inkl. echter Ren’Py-Laufzeit, Server- und lokaler Modus) | CI auf GitHub grün (RenOS CI, Lauf #2) |
+| GitHub | Pages-Workflow (RenOS + Spiele-Host) | lokal gebaut; Veröffentlichung erst nach Merge in den Standard-Branch (Umgebungsschutz von `github-pages`), noch nicht auf GitHub gelaufen |
 | Deployment | `npm run build && npm start` im Produktionsmodus (CSP, Härtungs-Header, SPA-Fallback, gesperrte Verwaltung ohne Passwort) | manueller Smoke-Test |
 
 ## Implementiert, aber nicht verifiziert
