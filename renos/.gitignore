@@ -1,0 +1,13 @@
+node_modules/
+dist/
+dev-dist/
+data/
+.env
+.env.local
+*.log
+test-results/
+playwright-report/
+e2e/.artifacts/
+e2e/fixtures/generated/
+.vite/
+coverage/
