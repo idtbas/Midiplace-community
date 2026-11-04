@@ -28,7 +28,7 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 | Eingebauter Spiele-Host | Jedes Spiel im sandboxed iframe mit anonymem Origin, ohne zweite Website: Dateien per MessagePort, IndexedDB-Nachbildung für Ren’Py-Spielstände, Spielstände pro Spiel bei RenOS (Anzeige, Übernahme in neue Version, Löschen mit dem Spiel), kein Netzwerk, offline | Unit + E2E inkl. echter Ren’Py-Laufzeit (Spielstände über Neuladen, offline) |
 | Externer Spiele-Host (optional) | statischer Host auf zweiter Adresse mit Service Worker, Einstellungen mit Prüfung | E2E inkl. echter Ren’Py-Laufzeit |
 | Große Spiele | 3,2-GB-Archiv lokal installiert (~30 s, +30 MB Speicher); Server-Limits 16 GB Upload / 32 GB entpackt | manuelle Messung in Chromium |
-| GitHub | CI-Workflow mit allen Tests (inkl. echter Ren’Py-Laufzeit, Server- und lokaler Modus) | CI auf GitHub grün (RenOS CI, Lauf #2) |
+| GitHub | CI-Workflow mit allen Tests (inkl. echter Ren’Py-Laufzeit 8.6.0 und 7.8.7, Server- und lokaler Modus, Windows/Linux-Umwandlung) | CI auf GitHub grün (RenOS CI, Lauf #9: 9/9 lokale E2E-Tests, keiner übersprungen) |
 | GitHub | Pages-Workflow (RenOS + Laufzeitpakete + optionaler Spiele-Host) | lokal gebaut; Veröffentlichung erst nach Merge in den Standard-Branch (Umgebungsschutz von `github-pages`), noch nicht auf GitHub gelaufen |
 | Deployment | `npm run build && npm start` im Produktionsmodus (CSP, Härtungs-Header, SPA-Fallback, gesperrte Verwaltung ohne Passwort) | manueller Smoke-Test |
 
