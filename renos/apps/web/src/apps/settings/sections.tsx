@@ -74,6 +74,21 @@ export function AppearanceSection() {
   const s = useSettings();
   return (
     <>
+      <Group title="Erscheinungsbild">
+        <Row label="Design" hint="„System“ folgt der Einstellung von iPadOS (Hell/Dunkel).">
+          <Segmented
+            label="Design"
+            size="sm"
+            value={s.theme}
+            onChange={(v) => s.set('theme', v)}
+            options={[
+              { value: 'dark', label: 'Dunkel' },
+              { value: 'light', label: 'Hell' },
+              { value: 'system', label: 'System' },
+            ]}
+          />
+        </Row>
+      </Group>
       <Group title="Akzentfarbe" description="Wird sparsam für Auswahl, Fokus und aktive Elemente verwendet.">
         <div className="flex flex-wrap gap-3 p-4">
           {(Object.keys(ACCENTS) as AccentId[]).map((id) => (

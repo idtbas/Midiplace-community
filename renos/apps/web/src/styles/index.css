@@ -66,6 +66,45 @@
   --panel-blur: saturate(140%) blur(18px);
 }
 
+:root {
+  color-scheme: dark;
+}
+
+/* Helles Erscheinungsbild: gleiche Struktur, helle Flächen, dunkle Schrift. Systemleiste, Terminal,
+   Spieler und Sperrbildschirm bleiben bewusst dunkel (wie bei GNOME). */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --desk: #e6eaf0;
+  --surface-0: #f3f5f8;
+  --surface-1: #fbfcfd;
+  --surface-2: #eceff4;
+  --surface-3: #dfe4eb;
+  --surface-4: #d2d9e2;
+  --line: #c9d0da;
+  --line-soft: rgb(148 160 178 / 0.42);
+  --line-faint: rgb(148 160 178 / 0.24);
+  --fg: #19202a;
+  --fg-muted: #455163;
+  --fg-subtle: #637084;
+  --fg-faint: #8590a1;
+  --accent-strong: color-mix(in srgb, var(--accent) 82%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 18%, transparent);
+  --accent-softer: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-fg: #ffffff;
+  --success: #23805f;
+  --warning: #96651a;
+  --danger: #bf4040;
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.12);
+  --shadow-md: 0 6px 18px rgb(15 23 42 / 0.14), 0 1px 3px rgb(15 23 42 / 0.1);
+  --shadow-window: 0 22px 60px rgb(15 23 42 / 0.22), 0 4px 14px rgb(15 23 42 / 0.12);
+  --shadow-window-inactive: 0 12px 34px rgb(15 23 42 / 0.14), 0 2px 8px rgb(15 23 42 / 0.1);
+  --panel-bg: rgb(251 252 253 / 0.97);
+}
+
+:root[data-theme='light'][data-transparency='on'] {
+  --panel-bg: rgb(251 252 253 / 0.86);
+}
+
 :root[data-motion='reduced'] {
   --dur-fast: 0ms;
   --dur: 0ms;
