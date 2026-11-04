@@ -37,7 +37,10 @@ export function useApplySettings(): void {
   const theme = useEffectiveTheme();
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty('--accent', accentFor(ACCENTS[accent]?.value ?? ACCENTS.blau.value, theme));
+    const base = ACCENTS[accent]?.value ?? ACCENTS.blau.value;
+    root.style.setProperty('--accent', accentFor(base, theme));
+    // Unveränderte Akzentfarbe für Bereiche, die immer dunkel sind (.theme-dark).
+    root.style.setProperty('--accent-base', base);
     root.style.setProperty('--ui-scale', String(uiScale));
     if (motion === 'system') delete root.dataset.motion;
     else root.dataset.motion = motion;

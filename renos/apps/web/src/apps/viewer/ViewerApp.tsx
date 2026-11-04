@@ -149,7 +149,7 @@ export default function ViewerApp({ windowId, payload }: AppProps) {
   if (state === 'missing') return <EmptyState icon={ImageIcon} title="Datei nicht gefunden" className="h-full bg-surface-1">Die Datei wurde gelöscht oder verschoben.</EmptyState>;
 
   return (
-    <div className="flex h-full flex-col bg-[#0b0d11]" data-testid="viewer">
+    <div className="theme-dark flex h-full flex-col bg-[#0b0d11]" data-testid="viewer">
       <WindowHeader>
         <IconButton icon={ChevronLeft} label="Vorheriges (←)" size="sm" disabled={siblings.length < 2} onClick={() => step(-1)} />
         <IconButton icon={ChevronRight} label="Nächstes (→)" size="sm" disabled={siblings.length < 2} onClick={() => step(1)} data-testid="viewer-next" />

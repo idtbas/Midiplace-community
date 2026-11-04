@@ -234,7 +234,7 @@ export default function TerminalApp({ windowId, payload }: AppProps) {
 
   return (
     <div
-      className="flex h-full flex-col bg-[#0f1318] font-mono text-[13px] leading-[1.55]"
+      className="theme-dark flex h-full flex-col bg-[#0f1318] font-mono text-[13px] leading-[1.55]"
       onPointerUp={() => {
         if (!window.getSelection()?.toString()) inputRef.current?.focus({ preventScroll: true });
       }}

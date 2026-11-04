@@ -5,7 +5,8 @@
    Ruhiges Dark Theme: Anthrazit, Grau, Dunkelblau – Akzent sparsam.
    ========================================================================== */
 
-:root {
+:root,
+.theme-dark {
   --desk: #11151c;
   --surface-0: #161a22;
   --surface-1: #1b2029;
@@ -19,7 +20,6 @@
   --fg-muted: #a0acbc;
   --fg-subtle: #7a8698;
   --fg-faint: #5c6677;
-  --accent: #87a9e8;
   --accent-strong: color-mix(in srgb, var(--accent) 86%, white);
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   --accent-softer: color-mix(in srgb, var(--accent) 9%, transparent);
@@ -30,6 +30,16 @@
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
   --success-soft: color-mix(in srgb, var(--success) 14%, transparent);
   --warning-soft: color-mix(in srgb, var(--warning) 14%, transparent);
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.25);
+  --shadow-md: 0 6px 18px rgb(0 0 0 / 0.32), 0 1px 3px rgb(0 0 0 / 0.25);
+  --shadow-window: 0 22px 60px rgb(0 0 0 / 0.42), 0 4px 14px rgb(0 0 0 / 0.28);
+  --shadow-window-inactive: 0 12px 34px rgb(0 0 0 / 0.32), 0 2px 8px rgb(0 0 0 / 0.22);
+  --panel-bg: rgb(27 32 41 / 0.96);
+  --panel-blur: none;
+}
+
+:root {
+  --accent: #87a9e8;
 
   --radius-xs: 5px;
   --radius-sm: 7px;
@@ -37,15 +47,8 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
 
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.25);
-  --shadow-md: 0 6px 18px rgb(0 0 0 / 0.32), 0 1px 3px rgb(0 0 0 / 0.25);
-  --shadow-window: 0 22px 60px rgb(0 0 0 / 0.42), 0 4px 14px rgb(0 0 0 / 0.28);
-  --shadow-window-inactive: 0 12px 34px rgb(0 0 0 / 0.32), 0 2px 8px rgb(0 0 0 / 0.22);
-
   --topbar-h: 32px;
   --ui-scale: 1;
-  --panel-bg: rgb(27 32 41 / 0.96);
-  --panel-blur: none;
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, 'Cascadia Mono', 'Roboto Mono', monospace;
@@ -68,6 +71,13 @@
 
 :root {
   color-scheme: dark;
+}
+
+/* Bereiche, die in jedem Erscheinungsbild dunkel bleiben (Systemleiste, Terminal, Spieler, Sperrbildschirm). */
+.theme-dark {
+  color-scheme: dark;
+  color: var(--fg);
+  --accent: var(--accent-base, #87a9e8);
 }
 
 /* Helles Erscheinungsbild: gleiche Struktur, helle Flächen, dunkle Schrift. Systemleiste, Terminal,
@@ -103,6 +113,11 @@
 
 :root[data-theme='light'][data-transparency='on'] {
   --panel-bg: rgb(251 252 253 / 0.86);
+}
+
+:root[data-transparency='on'] .theme-dark {
+  --panel-bg: rgb(27 32 41 / 0.84);
+  --panel-blur: saturate(140%) blur(18px);
 }
 
 :root[data-motion='reduced'] {

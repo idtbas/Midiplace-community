@@ -12,7 +12,7 @@ import { RenosMark } from '@/ui/AppIcon';
 /** Startbildschirm beim Einschalten bzw. Neustart. */
 export function BootScreen({ label = 'RenOS startet …' }: { label?: string }) {
   return (
-    <div className="fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-[#07090d] text-white" data-testid="boot-screen" role="status" aria-label={label}>
+    <div className="theme-dark fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-[#07090d] text-white" data-testid="boot-screen" role="status" aria-label={label}>
       <motion.div initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5 }} className="flex flex-col items-center">
         <RenosMark size={72} className="text-white" />
         <div className="mt-5 text-2xl font-semibold tracking-tight">RenOS</div>
@@ -30,7 +30,7 @@ export function BootScreen({ label = 'RenOS startet …' }: { label?: string }) 
 export function OffScreen() {
   const powerOn = useSession((s) => s.powerOn);
   return (
-    <div className="fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black text-white" data-testid="off-screen">
+    <div className="theme-dark fixed inset-0 z-[20000] flex flex-col items-center justify-center bg-black text-white" data-testid="off-screen">
       <button
         type="button"
         onClick={powerOn}
@@ -102,7 +102,7 @@ export function LockScreen() {
   const date = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' }).format(now);
 
   return (
-    <div className="fixed inset-0 z-[20000] overflow-hidden text-white" data-testid="lock-screen" role="dialog" aria-modal="true" aria-label="Gesperrt">
+    <div className="theme-dark fixed inset-0 z-[20000] overflow-hidden text-white" data-testid="lock-screen" role="dialog" aria-modal="true" aria-label="Gesperrt">
       <Wallpaper />
       <div className="absolute inset-0 bg-black/45 backdrop-blur-2xl" />
       <div

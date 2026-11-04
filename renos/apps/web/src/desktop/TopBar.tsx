@@ -118,7 +118,7 @@ export function TopBar() {
 
   return (
     <header
-      className="os-chrome absolute inset-x-0 top-0 flex items-center justify-between bg-[#0c0f14]/88 px-1.5 text-sm"
+      className="os-chrome theme-dark absolute inset-x-0 top-0 flex items-center justify-between bg-[#0c0f14]/88 px-1.5 text-sm"
       style={{ height: 'var(--topbar-h)', paddingTop: 'var(--safe-top)', zIndex: 5000, boxSizing: 'content-box' }}
       onContextMenu={(e) => e.preventDefault()}
     >

@@ -253,7 +253,7 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
           ) : null}
           <div
             className={cn(
-              'os-chrome z-40 flex items-center gap-1 border-b border-white/10 bg-[#0c0f14]/92 px-2 py-1.5 transition-[transform,opacity] duration-[var(--dur)] ease-[var(--ease-out)]',
+              'os-chrome theme-dark z-40 flex items-center gap-1 border-b border-white/10 bg-[#0c0f14]/92 px-2 py-1.5 transition-[transform,opacity] duration-[var(--dur)] ease-[var(--ease-out)]',
               pinnedBar ? 'relative' : 'absolute inset-x-0 top-0',
               barShown ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0',
             )}
