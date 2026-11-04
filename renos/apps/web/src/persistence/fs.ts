@@ -9,6 +9,7 @@ import { db, newId, type FsNode } from './db';
 
 export const HOME_ID = 'home';
 export const SPECIAL_FOLDERS = [
+  { id: 'desktop', name: 'Schreibtisch' },
   { id: 'documents', name: 'Dokumente' },
   { id: 'pictures', name: 'Bilder' },
   { id: 'downloads', name: 'Downloads' },
@@ -22,7 +23,12 @@ export class FsError extends Error {}
 
 export async function initFileSystem(): Promise<void> {
   await db.transaction('rw', db.nodes, db.blobs, async () => {
-    if (await db.nodes.get(HOME_ID)) return;
+    if (await db.nodes.get(HOME_ID)) {
+      // Neue Systemordner (z. B. „Schreibtisch“) auch in bestehenden Installationen anlegen.
+      const now = Date.now();
+      for (const folder of SPECIAL_FOLDERS) if (!(await db.nodes.get(folder.id))) await db.nodes.add(folderNode(folder.id, HOME_ID, folder.name, now));
+      return;
+    }
     const now = Date.now();
     await db.nodes.add(folderNode(HOME_ID, null, t.files.home, now));
     for (const folder of SPECIAL_FOLDERS) await db.nodes.add(folderNode(folder.id, HOME_ID, folder.name, now));

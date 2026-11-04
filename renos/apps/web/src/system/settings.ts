@@ -51,6 +51,14 @@ export interface Settings {
   libraryCollapsedHelp: boolean;
   /** Adresse eines externen Spiele-Hosts (nur lokaler Modus). Leer = eingebauter Spiele-Host. */
   gameHostUrl: string;
+  /** PBKDF2-Hash der Geräte-PIN für den Sperrbildschirm (leer = keine PIN). */
+  lockPinHash: string;
+  /** Automatisch sperren nach so vielen Minuten ohne Eingabe (0 = nie). */
+  autoLockMinutes: number;
+  /** Erscheinungsbild: dunkel, hell oder wie iPadOS. */
+  theme: 'dark' | 'light' | 'system';
+  /** Inhalt des Ordners „Schreibtisch“ als Symbole auf dem Schreibtisch zeigen. */
+  desktopIcons: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -81,6 +89,10 @@ export const DEFAULT_SETTINGS: Settings = {
   libraryCollapsedHelp: false,
   // Leer = eingebauter Spiele-Host. Eine Adresse wählt einen externen Host (optional).
   gameHostUrl: '',
+  lockPinHash: '',
+  autoLockMinutes: 0,
+  theme: 'dark',
+  desktopIcons: true,
 };
 
 interface SettingsStore extends Settings {
@@ -117,6 +129,10 @@ export const useSettings = create<SettingsStore>()(
         if (!(merged.dockSize in DOCK_SIZES)) merged.dockSize = DEFAULT_SETTINGS.dockSize;
         if (!Array.isArray(merged.pinnedApps)) merged.pinnedApps = DEFAULT_SETTINGS.pinnedApps;
         if (typeof merged.gameHostUrl !== 'string') merged.gameHostUrl = '';
+        if (typeof merged.lockPinHash !== 'string' || (merged.lockPinHash && !merged.lockPinHash.startsWith('pbkdf2$'))) merged.lockPinHash = '';
+        if (![0, 1, 2, 5, 10, 15, 30, 60].includes(merged.autoLockMinutes)) merged.autoLockMinutes = 0;
+        if (!['dark', 'light', 'system'].includes(merged.theme)) merged.theme = 'dark';
+        if (typeof merged.desktopIcons !== 'boolean') merged.desktopIcons = true;
         if (typeof merged.userName !== 'string' || !/^[a-z][a-z0-9_-]{0,31}$/.test(merged.userName)) merged.userName = DEFAULT_SETTINGS.userName;
         return merged;
       },

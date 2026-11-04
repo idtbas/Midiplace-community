@@ -1,4 +1,4 @@
-export const APP_IDS = ['files', 'library', 'installer', 'notes', 'terminal', 'settings', 'player'] as const;
+export const APP_IDS = ['files', 'library', 'installer', 'notes', 'terminal', 'settings', 'editor', 'viewer', 'media', 'calculator', 'clock', 'monitor', 'player'] as const;
 export type AppId = (typeof APP_IDS)[number];
 
 export function isAppId(value: unknown): value is AppId {

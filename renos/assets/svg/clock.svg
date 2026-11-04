@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Uhr -->
+  <circle cx="128" cy="132" r="92" fill="#5d6167"/>
+  <circle cx="128" cy="132" r="74" fill="#cdd0d4"/>
+  <path d="M128 132V82" stroke="#4c5055" stroke-width="12" stroke-linecap="round"/>
+  <path d="M128 132l34 22" stroke="#4c5055" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="128" cy="132" r="9" fill="#4c5055"/>
+  <path d="M60 52l26 -14M196 52l-26 -14" stroke="#8d9096" stroke-width="14" stroke-linecap="round"/>
+</svg>

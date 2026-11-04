@@ -9,6 +9,8 @@ import { prefersReducedMotion, useSettings } from '@/system/settings';
 import { clearSessionWindows } from '@/system/windows';
 import { Button } from '@/ui/Button';
 import { PhoneNotice } from './PhoneNotice';
+import { BootScreen, SessionOverlay } from './SessionScreens';
+import { BOOT_MS, useSession } from '@/system/session';
 
 // Getrennt geladen: Die Installationsseite braucht keinen Desktop-Code und umgekehrt.
 const Desktop = lazy(() => import('@/desktop/Desktop').then((m) => ({ default: m.Desktop })));
@@ -42,10 +44,15 @@ function DesktopBoot() {
     let cancelled = false;
     (async () => {
       try {
+        const started = Date.now();
         await db.open();
         await initFileSystem();
         if (!useSettings.getState().restoreSession) clearSessionWindows();
         if (isStandalone()) void requestPersistentStorage();
+        // Startbildschirm kurz zeigen, damit der Systemstart als solcher erkennbar ist.
+        const rest = BOOT_MS - (Date.now() - started);
+        if (rest > 0 && !prefersReducedMotion(useSettings.getState().motion)) await new Promise((r) => setTimeout(r, rest));
+        useSession.getState().start();
         if (!cancelled) setState('ready');
       } catch (error) {
         console.error(error);
@@ -71,9 +78,14 @@ function DesktopBoot() {
       />
     );
   }
-  if (state === 'booting') return null;
+  if (state === 'booting') return <BootScreen />;
   if (showOnboarding) return <Onboarding onDone={() => setShowOnboarding(false)} />;
-  return <Desktop />;
+  return (
+    <>
+      <Desktop />
+      <SessionOverlay />
+    </>
+  );
 }
 
 export function Root({ initialMode }: { initialMode: AppMode }) {

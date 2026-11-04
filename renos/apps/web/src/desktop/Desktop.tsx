@@ -1,18 +1,26 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { AppWindow, Grid2x2, Image as ImageIcon, Info, Minimize2, Settings2, XSquare } from 'lucide-react';
+import { AppWindow, FilePlus2, FolderOpen, FolderPlus, Grid2x2, Image as ImageIcon, Info, Minimize2, Settings2, Upload, XSquare } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { t } from '@/i18n';
 import { startServerMonitor } from '@/api/server';
-import { openApp } from '@/system/actions';
+import { pickAndImport } from '@/apps/files/fileOps';
+import { createFile, createFolder, FsError, uniqueName, validateName } from '@/persistence/fs';
+import { openApp, openFilesAt } from '@/system/actions';
+import { promptDialog } from '@/system/dialogs';
+import { notify } from '@/system/notifications';
 import { showContextMenu } from '@/system/contextMenu';
 import { useSettings } from '@/system/settings';
 import { useShell } from '@/system/shell';
+import { useSession } from '@/system/session';
+import { useAutoLock } from '@/shell/SessionScreens';
+import { useAlarmScheduler } from '@/system/alarms';
 import { dispatchShortcut, isEditableTarget, useShortcut } from '@/system/shortcuts';
 import { useWindows } from '@/system/windows';
 import { showAbout } from '@/shell/About';
 import { OrientationHint } from '@/shell/OrientationHint';
 import { WindowLayer } from '@/wm/WindowLayer';
 import { ContextMenuHost } from './ContextMenuHost';
+import { DESKTOP_FOLDER, DesktopIcons, dropOnDesktop } from './DesktopIcons';
 import { DialogHost } from './DialogHost';
 import { Dock, dockReserve } from './Dock';
 import { Launcher } from './Launcher';
@@ -26,6 +34,7 @@ function useGlobalShortcuts() {
 
   useShortcut({ id: 'sys.launcher', keys: ['Alt+Space', 'Mod+K'], scope: 'global', group: 'System', description: 'Anwendungen & Suche öffnen', allowInInput: true, handler: () => useShell.getState().toggleLauncher() });
   useShortcut({ id: 'sys.settings', keys: ['Alt+,', 'Mod+,'], scope: 'global', group: 'System', description: 'Einstellungen öffnen', allowInInput: true, handler: () => void openApp('settings') });
+  useShortcut({ id: 'sys.lock', keys: ['Alt+L', 'Ctrl+Alt+L'], scope: 'global', group: 'System', description: 'Bildschirm sperren', allowInInput: true, handler: () => useSession.getState().lock() });
   useShortcut({ id: 'sys.desktop', keys: 'Alt+D', scope: 'global', group: 'System', description: 'Schreibtisch anzeigen (alle minimieren)', handler: () => ws().minimizeAll() });
   useShortcut({
     id: 'win.close',
@@ -112,6 +121,8 @@ export function Desktop() {
     useShallow((s) => ({ dockSize: s.dockSize, autohide: s.dockAutohide, shortcutsEnabled: s.shortcutsEnabled, typeToSearch: s.typeToSearch })),
   );
   useGlobalShortcuts();
+  useAutoLock();
+  useAlarmScheduler();
 
   useEffect(() => startServerMonitor(), []);
 
@@ -141,6 +152,8 @@ export function Desktop() {
   // Zentrale Tastaturbehandlung.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // Gesperrt, ausgeschaltet oder beim Start: keine Kürzel und keine Suche.
+      if (useSession.getState().phase !== 'running') return;
       const { focusedId, windows } = useWindows.getState();
       const focusedAppId = focusedId ? (windows[focusedId]?.appId ?? null) : null;
       if (dispatchShortcut(event, { focusedAppId, focusedWindowId: focusedId }, { systemEnabled: shortcutsEnabled })) return;
@@ -165,9 +178,33 @@ export function Desktop() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [shortcutsEnabled, typeToSearch]);
 
+  const createOnDesktop = async (kind: 'folder' | 'text') => {
+    const suggestion = await uniqueName(DESKTOP_FOLDER, kind === 'folder' ? t.files.newFolderName : 'Neue Textdatei.txt');
+    const name = await promptDialog({
+      title: kind === 'folder' ? 'Neuer Ordner' : 'Neue Textdatei',
+      label: 'Name',
+      defaultValue: suggestion,
+      confirmLabel: 'Erstellen',
+      validate: validateName,
+      selectBaseName: kind === 'text',
+    });
+    if (!name) return;
+    try {
+      if (kind === 'folder') await createFolder(DESKTOP_FOLDER, name);
+      else await createFile(DESKTOP_FOLDER, name, new Blob([''], { type: 'text/plain' }), 'text/plain');
+    } catch (error) {
+      notify({ kind: 'error', title: error instanceof FsError ? error.message : 'Erstellen fehlgeschlagen' });
+    }
+  };
+
   const onDesktopContextMenu = (event: React.MouseEvent) => {
     if (event.target !== event.currentTarget) return;
     showContextMenu(event, [
+      { id: 'newfolder', label: 'Neuer Ordner …', icon: FolderPlus, run: () => void createOnDesktop('folder') },
+      { id: 'newtext', label: 'Neue Textdatei …', icon: FilePlus2, run: () => void createOnDesktop('text') },
+      { id: 'import', label: 'Dateien hierher importieren …', icon: Upload, run: () => void pickAndImport(DESKTOP_FOLDER) },
+      { id: 'reveal', label: 'Schreibtisch in Files öffnen', icon: FolderOpen, run: () => openFilesAt(DESKTOP_FOLDER) },
+      'separator',
       { id: 'apps', label: t.desktop.showApps, icon: Grid2x2, shortcut: '⌥ Leertaste', run: () => useShell.getState().openLauncher() },
       { id: 'wallpaper', label: t.desktop.changeWallpaper, icon: ImageIcon, run: () => openApp('settings', { section: 'desktop' }) },
       'separator',
@@ -196,7 +233,24 @@ export function Desktop() {
   return (
     <div ref={rootRef} className="os-chrome fixed inset-0 overflow-hidden bg-desk" style={{ paddingBottom: 'var(--safe-bottom)' }} data-testid="desktop">
       <Wallpaper />
-      <div className="absolute inset-0" onContextMenu={onDesktopContextMenu} onPointerDown={onDesktopPointerDown} onPointerUp={cancelPress} onPointerCancel={cancelPress} onPointerMove={cancelPress} />
+      <div
+        className="absolute inset-0"
+        onContextMenu={onDesktopContextMenu}
+        onPointerDown={onDesktopPointerDown}
+        onPointerUp={cancelPress}
+        onPointerCancel={cancelPress}
+        onPointerMove={cancelPress}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          void dropOnDesktop(Array.from(e.dataTransfer.files));
+        }}
+        data-testid="desktop-surface"
+      />
+      <DesktopIcons />
       <WindowLayer />
       <TopBar />
       <Dock />

@@ -28,7 +28,8 @@ export async function createBackup(): Promise<Blob> {
   for (const node of nodes) if (node.id !== HOME_ID && (await isReachable(node.id))) reachable.push(node);
   const settings: Partial<Settings> = {};
   const state = useSettings.getState();
-  for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) (settings as Record<string, unknown>)[key] = state[key];
+  // Die Geräte-PIN gehört zum Gerät und kommt nicht in Sicherungen.
+  for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) if (key !== 'lockPinHash') (settings as Record<string, unknown>)[key] = state[key];
 
   const manifest: BackupManifest = {
     format: BACKUP_FORMAT,
@@ -145,6 +146,7 @@ export async function restoreBackup(file: Blob): Promise<RestoreResult> {
     const allowed: Partial<Settings> = {};
     for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) {
       const value = (manifest.settings as Record<string, unknown>)[key];
+      if (key === 'lockPinHash') continue;
       if (value !== undefined && typeof value === typeof DEFAULT_SETTINGS[key]) (allowed as Record<string, unknown>)[key] = value;
     }
     useSettings.getState().patch({ ...allowed, onboardingCompleted: true });

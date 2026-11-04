@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Bilder: Bilderrahmen mit Bergen und Sonne -->
+  <rect x="36" y="52" width="184" height="152" rx="18" fill="#5d6167"/>
+  <rect x="52" y="68" width="152" height="120" rx="8" fill="#7a7d83"/>
+  <circle cx="160" cy="100" r="14" fill="#e3e5e8"/>
+  <path d="M52 172l46-50 34 36 22-22 50 50v2a8 8 0 0 1-8 8H60a8 8 0 0 1-8-8z" fill="#cdd0d4"/>
+</svg>
