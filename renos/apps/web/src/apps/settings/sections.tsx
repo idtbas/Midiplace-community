@@ -8,7 +8,7 @@ import { downloadBlob, pickFiles } from '@/lib/download';
 import { formatBytes } from '@/lib/format';
 import { browserName, displayModeLabel, hasFinePointer, hasHover, isStandalone } from '@/lib/platform';
 import { useServer } from '@/api/server';
-import { IS_LOCAL } from '@/config';
+import { DEFAULT_GAME_HOST, IS_LOCAL } from '@/config';
 import { gameHostUrl, verifyGameHost, type HostCheck } from '@/games/gameHost';
 import { db, kvSet } from '@/persistence/db';
 import { createBackup, restoreBackup, wipeLocalData } from '@/persistence/backup';
@@ -515,13 +515,39 @@ function LocalGamesSection() {
     }
   };
 
+  const external = gameHostUrl(s.gameHostUrl);
+  const useBuiltin = () => {
+    s.set('gameHostUrl', '');
+    setDraft('');
+    setCheck(null);
+    notify({ kind: 'success', title: 'Eingebauter Spiele-Host aktiv.', transient: true });
+  };
+
   return (
     <>
       <Group
         title="Spiele-Host"
-        description="Spiele laufen aus Sicherheitsgründen auf einer zweiten Adresse (eigener Origin). Dort liegen nur wenige statische Dateien – die Spiele selbst bleiben auf diesem iPad."
+        description="Spiele enthalten fremdes JavaScript. Damit sie nie mit den Rechten von RenOS laufen, läuft jedes Spiel abgeschottet in einem eigenen, anonymen Origin."
       >
+        <Row
+          label="Eingebauter Spiele-Host"
+          hint="Empfohlen. Keine zweite Website nötig, funktioniert offline. Spielstände verwaltet RenOS getrennt pro Spiel; Spiele haben keinen Netzwerkzugriff."
+        >
+          {external ? (
+            <Button size="sm" onClick={useBuiltin} data-testid="gamehost-builtin">
+              Verwenden
+            </Button>
+          ) : (
+            <span className="text-sm text-success" data-testid="gamehost-active">
+              Aktiv
+            </span>
+          )}
+        </Row>
         <div className="flex flex-col gap-2 p-4">
+          <div className="text-base font-medium text-fg">Externer Spiele-Host (optional)</div>
+          <p className="text-sm text-fg-subtle">
+            Eine zweite Adresse, z. B. ein Fork in einer GitHub-Organisation (siehe README). Nur nötig, wenn ein Spiel im eingebauten Host nicht läuft.
+          </p>
           <div className="flex gap-2">
             <TextInput
               value={draft}
@@ -529,12 +555,12 @@ function LocalGamesSection() {
                 setDraft(e.target.value);
                 setCheck(null);
               }}
-              placeholder="https://dein-name-games.github.io/Midiplace-community/renos-games/"
+              placeholder={DEFAULT_GAME_HOST || 'https://dein-name-games.github.io/Midiplace-community/renos-games/'}
               aria-label="Adresse des Spiele-Hosts"
               data-testid="gamehost-input"
             />
             <Button onClick={() => void save()} loading={check === 'checking'} data-testid="gamehost-save">
-              Prüfen &amp; speichern
+              Prüfen &amp; verwenden
             </Button>
           </div>
           {check && check !== 'checking' ? (
@@ -543,11 +569,9 @@ function LocalGamesSection() {
             ) : (
               <p className="text-sm text-danger">{HOST_REASONS[check.reason]}</p>
             )
-          ) : gameHostUrl(s.gameHostUrl) ? (
-            <p className="text-sm text-fg-subtle">Aktuell: {gameHostUrl(s.gameHostUrl)}</p>
-          ) : (
-            <p className="text-sm text-warning">Noch kein Spiele-Host eingerichtet – Anleitung in der README („RenOS auf GitHub“).</p>
-          )}
+          ) : external ? (
+            <p className="text-sm text-fg-subtle">Aktiv: {external}</p>
+          ) : null}
         </div>
       </Group>
       <Group title="Speicher auf diesem iPad">
@@ -577,6 +601,7 @@ function LocalGamesSection() {
 
 function PlayerOptions() {
   const s = useSettings();
+  const builtinHost = IS_LOCAL && !gameHostUrl(s.gameHostUrl);
   return (
     <>
       <Group title="Player">
@@ -584,8 +609,10 @@ function PlayerOptions() {
         <ToggleRow label="Spielsteuerung automatisch ausblenden" hint="Die Leiste erscheint, wenn der Zeiger den oberen Rand erreicht oder der Griff angetippt wird." checked={s.playerAutohideControls} onChange={(v) => s.set('playerAutohideControls', v)} />
       </Group>
       <Notice className="text-sm">
-        <strong className="text-fg">{t.library.savesTitle}:</strong> {t.library.savesText} Spielstände liegen im Speicher des Spiele-Origins und werden von
-        der RenOS-Sicherung nicht erfasst.
+        <strong className="text-fg">{t.library.savesTitle}:</strong>{' '}
+        {builtinHost
+          ? `${t.library.savesTextBuiltin} Die RenOS-Datensicherung enthält sie nicht.`
+          : `${t.library.savesText} Spielstände liegen im Speicher des Spiele-Origins und werden von der RenOS-Sicherung nicht erfasst.`}
       </Notice>
     </>
   );

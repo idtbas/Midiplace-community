@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, CircleX, FileArchive, HardDrive, Library, Play, Settings2, UploadCloud } from 'lucide-react';
+import { CheckCircle2, CircleX, FileArchive, HardDrive, Library, Play, UploadCloud } from 'lucide-react';
 import type { ArchiveAnalysis, Game } from '@renos/shared';
 import { t } from '@/i18n';
 import { cn } from '@/lib/cn';
@@ -37,7 +37,6 @@ const STEPS = [t.installer.stepCheck, t.installer.stepInstall];
 export function LocalInstaller({ payload }: AppProps) {
   const upsertGame = useServer((s) => s.upsertGame);
   const loadStorage = useServer((s) => s.loadStorage);
-  const hostConfigured = Boolean(gameHostUrl(useSettings((s) => s.gameHostUrl)));
   const [phase, setPhase] = useState<Phase>({ name: 'select' });
   const [dragging, setDragging] = useState(false);
   const phaseRef = useRef(phase);
@@ -243,14 +242,6 @@ export function LocalInstaller({ payload }: AppProps) {
             <p className="mt-1 text-base text-fg-muted">{t.installer.subtitleLocal}</p>
           </div>
         </div>
-        {!hostConfigured ? (
-          <Notice kind="warning" className="mt-5 text-sm">
-            {t.installer.noHostHint}{' '}
-            <button type="button" className="inline-flex items-center gap-1 font-medium text-fg underline" onClick={() => openApp('settings', { section: 'games' })}>
-              <Settings2 size={13} /> {t.player.openGameSettings}
-            </button>
-          </Notice>
-        ) : null}
         <ol className="mt-6 flex items-center gap-2 text-sm" aria-label="Fortschritt">
           {STEPS.map((label, i) => (
             <li key={label} className="flex items-center gap-2">

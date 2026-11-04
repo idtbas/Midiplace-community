@@ -85,7 +85,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       <p className="mt-5 flex items-start gap-2 text-sm text-fg-subtle">
         <Upload size={15} className="mt-0.5 shrink-0" />
         {IS_LOCAL
-          ? 'Spiele werden direkt auf diesem iPad installiert – auch große mit mehreren Gigabyte, solange Speicher frei ist. Zum Spielen richtest du einmalig einen kostenlosen Spiele-Host ein (Settings → Spiele).'
+          ? 'Spiele werden direkt auf diesem iPad installiert – auch große mit mehreren Gigabyte, solange Speicher frei ist. Gespielt wird im eingebauten Spiele-Host: jedes Spiel abgeschottet von RenOS, ganz ohne Einrichtung.'
           : 'Für Installation und Verwaltung meldest du dich mit dem Owner-Passwort deines RenOS-Servers an.'}{' '}
         Windows- oder Mac-Versionen eines Spiels laufen im Browser nicht.
       </p>

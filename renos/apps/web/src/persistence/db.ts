@@ -1,4 +1,4 @@
-import Dexie, { type EntityTable } from 'dexie';
+import Dexie, { type EntityTable, type Table } from 'dexie';
 
 /**
  * Lokale Datenbank von RenOS (IndexedDB über Dexie).
@@ -55,6 +55,19 @@ export interface LocalCover {
   data: Blob;
 }
 
+/**
+ * Spielstand-Datensatz eines Spiels im eingebauten Spiele-Host. Entspricht einem Eintrag der
+ * (nachgebildeten) IndexedDB des Spiels; Ren'Py legt dort Dateien aus ~/.renpy ab.
+ */
+export interface SaveRecord {
+  gameId: string;
+  db: string;
+  store: string;
+  key: string | number;
+  value: unknown;
+  size: number;
+}
+
 export interface KvEntry {
   key: string;
   value: unknown;
@@ -67,6 +80,7 @@ export class RenosDB extends Dexie {
   kv!: EntityTable<KvEntry, 'key'>;
   games!: EntityTable<LocalGame, 'id'>;
   covers!: EntityTable<LocalCover, 'id'>;
+  saves!: Table<SaveRecord, [string, string, string, string | number]>;
 
   constructor(name = 'renos') {
     super(name);
@@ -79,6 +93,9 @@ export class RenosDB extends Dexie {
     this.version(2).stores({
       games: 'id, title, installedAt',
       covers: 'id',
+    });
+    this.version(3).stores({
+      saves: '[gameId+db+store+key], gameId',
     });
   }
 }

@@ -6,7 +6,8 @@ import { chooseFile, webBuildEntries, windowOf, writeZip } from '../helpers';
 
 /**
  * Lokaler Modus (RenOS ohne Server, wie auf GitHub Pages):
- * Spiele werden im OPFS von RenOS installiert und über den statischen Spiele-Host (zweiter Origin) ausgeführt.
+ * Spiele werden im OPFS von RenOS installiert und im eingebauten Spiele-Host (anonymer Origin im iframe)
+ * oder optional über den statischen Spiele-Host (zweiter Origin) ausgeführt.
  */
 const HOST = 'http://localhost:4321/renos-games/';
 const HOST_ORIGIN = 'http://localhost:4321';
@@ -15,6 +16,8 @@ const BUILD = path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtur
 async function openDesktop(page: Page, withHost = true) {
   await page.addInitScript(
     ([host, withHostFlag]) => {
+      // Init-Skripte laufen in jedem Frame – auch im Spiel, das keinen Zugriff auf localStorage hat.
+      if (window !== window.top) return;
       if (!localStorage.getItem('renos.settings')) {
         localStorage.setItem('renos.settings', JSON.stringify({ state: { onboardingCompleted: true, gameHostUrl: withHostFlag ? host : '' }, version: 1 }));
       }
@@ -44,7 +47,7 @@ async function installLocally(page: Page, file: string) {
 }
 
 test.describe('Lokaler Modus (ohne Server)', () => {
-  test('läuft ohne Server, verlangt keine Anmeldung und richtet den Spiele-Host ein', async ({ page }) => {
+  test('läuft ohne Server, nutzt den eingebauten Spiele-Host und prüft externe Adressen', async ({ page }) => {
     await openDesktop(page, false);
     // Keine Anfrage an eine API: Der Desktop kommt ohne Server aus.
     const apiCalls: string[] = [];
@@ -53,24 +56,27 @@ test.describe('Lokaler Modus (ohne Server)', () => {
     });
     const library = await openApp(page, 'library');
     await expect(library.getByText('Noch keine Spiele installiert')).toBeVisible();
-    await expect(library.getByText(/braucht RenOS noch die Adresse deines Spiele-Hosts/)).toBeVisible();
+    // Keine Einrichtung nötig: kein Hinweis auf einen fehlenden Spiele-Host.
+    await expect(library.getByText(/Spiele-Host/)).toHaveCount(0);
 
+    await page.locator('[data-dock-item="settings"]').click();
     const settings = windowOf(page, 'settings');
-    await library.getByRole('button', { name: 'Spiele-Einstellungen öffnen' }).click();
-    await expect(settings.getByRole('heading', { name: 'Spiele', exact: true })).toBeVisible();
-    // Gleiche Adresse wie RenOS wird abgelehnt.
+    await settings.getByRole('button', { name: 'Spiele', exact: true }).click();
+    await expect(settings.getByTestId('gamehost-active')).toHaveText('Aktiv');
+    // Externe Adresse (optional): gleiche Adresse wie RenOS wird abgelehnt, falsche ebenso.
     await settings.getByTestId('gamehost-input').fill('http://localhost:4320/renos/');
     await settings.getByTestId('gamehost-save').click();
     await expect(settings.getByText(/darf nicht dieselbe Adresse wie RenOS haben/)).toBeVisible();
-    await settings.getByTestId('gamehost-input').fill('http://localhost:4320/irgendwas/');
-    await settings.getByTestId('gamehost-save').click();
-    await expect(settings.getByText(/darf nicht dieselbe Adresse/)).toBeVisible();
     await settings.getByTestId('gamehost-input').fill('http://localhost:4321/falsch/');
     await settings.getByTestId('gamehost-save').click();
     await expect(settings.getByText(/kein RenOS-Spiele-Host|nichts erreichbar/)).toBeVisible();
     await settings.getByTestId('gamehost-input').fill(HOST);
     await settings.getByTestId('gamehost-save').click();
     await expect(settings.getByText('Spiele-Host gefunden und gespeichert.')).toBeVisible();
+    await expect(settings.getByTestId('gamehost-active')).toHaveCount(0);
+    // Zurück zum eingebauten Host.
+    await settings.getByTestId('gamehost-builtin').click();
+    await expect(settings.getByTestId('gamehost-active')).toHaveText('Aktiv');
     expect(apiCalls).toEqual([]);
   });
 
@@ -88,13 +94,92 @@ test.describe('Lokaler Modus (ohne Server)', () => {
     await expect(win.getByTestId('installer-analysis')).toHaveAttribute('data-kind', 'renpy-desktop');
   });
 
-  test('installiert lokal, startet über den Spiele-Host und entfernt das Spiel wieder', async ({ page }) => {
-    await openDesktop(page);
+  test('eingebauter Spiele-Host: liefert nur Dateien des Spiels, sperrt RenOS und Netzwerk und entfernt alles wieder', async ({ page }) => {
+    await openDesktop(page, false);
     const file = writeZip('Lokal-1.0-web.zip', webBuildEntries('Lokal-1.0-web/', 'Lokales Spiel'));
     const installer = await installLocally(page, file);
     await installer.getByRole('button', { name: 'Jetzt spielen' }).click();
-    // Die Bridge im Spiel meldet sich über Host-Seite und Service Worker → die Spieldateien kamen aus dem iPad-Speicher.
+    // Die Laufzeit im Spiel meldet sich über den MessagePort → die Spieldateien kamen aus dem iPad-Speicher.
     await expect(page.getByTestId('player')).toHaveAttribute('data-booted', 'true', { timeout: 30_000 });
+    await expect(page.getByTestId('game-frame')).toHaveAttribute('data-host', 'builtin');
+    await expect(page.getByTestId('game-frame')).not.toHaveAttribute('sandbox', /allow-same-origin/);
+    const frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;
+
+    const probe = await frame.evaluate(async () => {
+      const wasm = await fetch('renpy.wasm');
+      const range = await fetch('game.zip', { headers: { Range: 'bytes=0-99' } });
+      const xhr = await new Promise<{ status: number; bytes: number }>((resolve) => {
+        const req = new XMLHttpRequest();
+        req.open('GET', 'renpy.data', true);
+        req.responseType = 'arraybuffer';
+        req.onload = () => resolve({ status: req.status, bytes: (req.response as ArrayBuffer).byteLength });
+        req.send(null);
+      });
+      const attempt = async (fn: () => unknown) => {
+        try {
+          const value = await fn();
+          return value instanceof Response ? `status ${value.status}` : String(value);
+        } catch (error) {
+          return (error as Error).name;
+        }
+      };
+      return {
+        origin,
+        wasm: { status: wasm.status, type: wasm.headers.get('content-type'), bytes: (await wasm.arrayBuffer()).byteLength },
+        range: { status: range.status, range: range.headers.get('content-range'), bytes: (await range.arrayBuffer()).byteLength },
+        xhr,
+        traversal: await attempt(() => fetch('../../../renos-games/../index.html?x').then((r) => r.status)),
+        missing: await attempt(() => fetch('gibt-es-nicht.js').then((r) => r.status)),
+        renos: await attempt(() => fetch('http://localhost:4320/renos/')),
+        parent: await attempt(() => window.parent.document.title),
+        storage: await attempt(() => localStorage.setItem('x', '1')),
+        cookie: document.cookie,
+      };
+    });
+    expect(probe).toEqual({
+      origin: 'null',
+      wasm: { status: 200, type: 'application/wasm', bytes: 8 },
+      range: { status: 206, range: 'bytes 0-99/4096', bytes: 100 },
+      xhr: { status: 200, bytes: expect.any(Number) },
+      // „../“ endet an der Wurzel des Spiels: Es gibt dort nur dessen eigene index.html.
+      traversal: '200',
+      missing: '404',
+      renos: 'TypeError',
+      parent: 'SecurityError',
+      storage: 'undefined',
+      cookie: '',
+    });
+
+    await page.getByRole('button', { name: 'Steuerung einblenden' }).click();
+    await page.getByTestId('player-controls').getByRole('button', { name: 'Spiel beenden' }).click();
+    const library = await openApp(page, 'library');
+    const card = library.getByRole('option', { name: /Lokales Spiel/ });
+    await expect(card).toBeVisible();
+    await card.click();
+    await expect(library.getByTestId('game-saves-count')).toHaveText('Noch keine Spielstände');
+    await card.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Entfernen …' }).click();
+    await expect(page.getByRole('alertdialog')).toContainText('mitsamt seinen Spielständen');
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Entfernen' }).click();
+    await expect(card).toHaveCount(0);
+    // Die Dateien sind aus dem OPFS verschwunden.
+    const left = await page.evaluate(async () => {
+      const root = await navigator.storage.getDirectory();
+      const games = await root.getDirectoryHandle('renos-games', { create: true });
+      const names: string[] = [];
+      for await (const name of (games as unknown as { keys: () => AsyncIterable<string> }).keys()) names.push(name);
+      return names;
+    });
+    expect(left).toEqual([]);
+  });
+
+  test('externer Spiele-Host: liefert nur Dateien des laufenden Spiels', async ({ page }) => {
+    await openDesktop(page, true);
+    const file = writeZip('Extern-1.0-web.zip', webBuildEntries('Extern-1.0-web/', 'Externes Spiel'));
+    const installer = await installLocally(page, file);
+    await installer.getByRole('button', { name: 'Jetzt spielen' }).click();
+    await expect(page.getByTestId('player')).toHaveAttribute('data-booted', 'true', { timeout: 30_000 });
+    await expect(page.getByTestId('game-frame')).toHaveAttribute('data-host', 'origin');
     const frame = page.frames().find((f) => f.url().startsWith(`${HOST}play/`));
     expect(frame?.url()).toMatch(/\/renos-games\/play\/[a-z0-9]{24}\/index\.html$/);
     const wasm = await frame!.evaluate(async () => {
@@ -110,25 +195,6 @@ test.describe('Lokaler Modus (ohne Server)', () => {
     // Andere Spiele/Pfade sind nicht erreichbar.
     const other = await frame!.evaluate(async () => (await fetch('../aaaaaaaaaaaaaaaaaaaaaaaa/index.html')).status);
     expect(other).toBe(404);
-
-    await page.getByRole('button', { name: 'Steuerung einblenden' }).click();
-    await page.getByTestId('player-controls').getByRole('button', { name: 'Spiel beenden' }).click();
-    const library = await openApp(page, 'library');
-    const card = library.getByRole('option', { name: /Lokales Spiel/ });
-    await expect(card).toBeVisible();
-    await card.click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Entfernen …' }).click();
-    await page.getByRole('alertdialog').getByRole('button', { name: 'Entfernen' }).click();
-    await expect(card).toHaveCount(0);
-    // Die Dateien sind aus dem OPFS verschwunden.
-    const left = await page.evaluate(async () => {
-      const root = await navigator.storage.getDirectory();
-      const games = await root.getDirectoryHandle('renos-games', { create: true });
-      const names: string[] = [];
-      for await (const name of (games as unknown as { keys: () => AsyncIterable<string> }).keys()) names.push(name);
-      return names;
-    });
-    expect(left).toEqual([]);
   });
 
   test.describe('echte Ren’Py-Laufzeit', () => {
@@ -142,20 +208,21 @@ test.describe('Lokaler Modus (ohne Server)', () => {
       const library = await openApp(page, 'library');
       await library.getByRole('option', { name: /RenOS Testspiel/ }).dblclick();
       await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
-      const frame = page.frames().find((f) => f.url().startsWith(`${HOST}play/`));
+      // Eingebauter Host: das iframe selbst. Externer Host: das Spiel-iframe in der Host-Seite.
+      const outer = await (await page.getByTestId('game-frame').elementHandle())!.contentFrame();
+      const frame = (await page.getByTestId('game-frame').getAttribute('data-host')) === 'builtin' ? outer : page.frames().find((f) => f.url().startsWith(`${HOST}play/`));
       expect(frame).toBeTruthy();
       return frame!;
     }
 
-    test('installiert ein echtes Spiel lokal, spielt es isoliert und behält Spielstände', async ({ page }) => {
-      await openDesktop(page);
+    async function playSaveAndReload(page: Page, check: (frame: Frame) => Promise<void>) {
       const installer = await installLocally(page, BUILD);
       await installer.getByRole('button', { name: 'Schließen' }).first().click();
 
       let frame = await start(page);
       expect(await exec(frame, 'result = persistent.starts')).toBe(1);
-      // Isolation: Spiel läuft auf dem Spiele-Origin und kommt nicht an RenOS heran.
-      expect(await frame.evaluate(() => location.origin)).toBe(HOST_ORIGIN);
+      await check(frame);
+      // Isolation: Das Spiel kommt nicht an RenOS heran.
       expect(
         await frame.evaluate(() => {
           try {
@@ -179,6 +246,76 @@ test.describe('Lokaler Modus (ohne Server)', () => {
       frame = await start(page);
       expect(await exec(frame, "result = renpy.can_load('1-1')")).toBe(true);
       expect(await exec(frame, 'result = persistent.starts')).toBe(2);
+      return frame;
+    }
+
+    test('eingebauter Spiele-Host: echtes Spiel läuft isoliert und behält Spielstände', async ({ page }) => {
+      await openDesktop(page, false);
+      await playSaveAndReload(page, async (frame) => {
+        await expect(page.getByTestId('game-frame')).toHaveAttribute('data-host', 'builtin');
+        // Anonymer Origin: kein Zugriff auf RenOS, kein eigener Speicher im Browser.
+        expect(await frame.evaluate(() => origin)).toBe('null');
+        expect(await frame.evaluate(() => typeof (navigator as Navigator & { serviceWorker?: unknown }).serviceWorker)).toBe('undefined');
+      });
+      // Die Spielstände liegen bei RenOS, getrennt nach Spiel.
+      const saves = await page.evaluate(async () => {
+        const open = indexedDB.open('renos');
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          open.onsuccess = () => resolve(open.result);
+          open.onerror = () => reject(open.error);
+        });
+        const tx = db.transaction('saves', 'readonly');
+        const all = await new Promise<{ gameId: string; key: string }[]>((resolve) => {
+          const req = tx.objectStore('saves').getAll();
+          req.onsuccess = () => resolve(req.result as { gameId: string; key: string }[]);
+        });
+        return { games: [...new Set(all.map((r) => r.gameId))].length, hasSave: all.some((r) => /1-1-LT1\.save$/.test(String(r.key))) };
+      });
+      expect(saves).toEqual({ games: 1, hasSave: true });
+
+      // Spielstände in eine „neue Version“ übernehmen (hier: ein zweites, synthetisches Spiel).
+      await page.getByRole('button', { name: 'Steuerung einblenden' }).click();
+      await page.getByTestId('player-controls').getByRole('button', { name: 'Spiel beenden' }).click();
+      const installer = await installLocally(page, writeZip('Neu-2.0-web.zip', webBuildEntries('Neu-2.0-web/', 'Neue Version')));
+      await installer.getByRole('button', { name: 'Schließen' }).first().click();
+      const library = await openApp(page, 'library');
+      await library.getByRole('option', { name: /RenOS Testspiel/ }).click();
+      await expect(library.getByTestId('game-saves-count')).not.toHaveText('Noch keine Spielstände');
+      const sourceCount = await library.getByTestId('game-saves-count').textContent();
+      await library.getByRole('option', { name: /Neue Version/ }).click();
+      await expect(library.getByTestId('game-saves-count')).toHaveText('Noch keine Spielstände');
+      await library.getByTestId('game-saves-copy').click();
+      await page.getByRole('menuitem', { name: /RenOS Testspiel/ }).click();
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Spielstände übernehmen' }).click();
+      await expect(library.getByTestId('game-saves-count')).toHaveText(sourceCount!);
+    });
+
+    test('eingebauter Spiele-Host: startet ein installiertes Spiel auch offline', async ({ page, context }) => {
+      await openDesktop(page, false);
+      const installer = await installLocally(page, BUILD);
+      await installer.getByRole('button', { name: 'Schließen' }).first().click();
+      // Der Service Worker von RenOS muss die Oberfläche übernommen haben.
+      await page.evaluate(async () => {
+        await navigator.serviceWorker.ready;
+      });
+      await page.reload();
+      await expect(page.getByTestId('desktop')).toBeVisible();
+      await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller))).toBe(true);
+
+      await context.setOffline(true);
+      await page.reload();
+      await expect(page.getByTestId('desktop')).toBeVisible();
+      const frame = await start(page);
+      expect(await exec(frame, 'result = persistent.starts')).toBe(1);
+      await context.setOffline(false);
+    });
+
+    test('externer Spiele-Host: echtes Spiel läuft auf dem zweiten Origin und behält Spielstände', async ({ page }) => {
+      await openDesktop(page, true);
+      await playSaveAndReload(page, async (frame) => {
+        await expect(page.getByTestId('game-frame')).toHaveAttribute('data-host', 'origin');
+        expect(await frame.evaluate(() => location.origin)).toBe(HOST_ORIGIN);
+      });
     });
   });
 });

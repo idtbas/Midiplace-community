@@ -32,6 +32,34 @@
 
 ## Lokaler Modus (ohne Server, z. B. GitHub Pages)
 
+Spiele werden auf dem iPad installiert (OPFS von RenOS). Ausgeführt werden sie standardmäßig im **eingebauten Spiele-Host**; ein **externer Spiele-Host** auf einer zweiten Adresse ist optional.
+
+### Eingebauter Spiele-Host (Standard)
+
+```
+┌──────────── iPad: installierte Web-App RenOS (Origin A, z. B. idtbas.github.io) ─────────────┐
+│  OPFS renos-games/<id>/…   IndexedDB: Spiele, Cover, saves (pro Spiel)                       │
+│                                                                                             │
+│  Player ─ <iframe sandbox="allow-scripts allow-forms allow-downloads allow-pointer-lock"     │
+│            srcdoc="CSP + <base href=https://renos-game.invalid/> + runtime.js">             │
+│              │  Origin: anonym („null“) – kein Zugriff auf RenOS, kein eigener Speicher     │
+│              │  ① runtime.js → „ready“ (postMessage an Origin A)                            │
+│   MessagePort│  ② RenOS prüft: Absender = eigenes iframe, Origin „null“, Dokument nicht     │
+│              │     lesbar → schickt MessagePort + Spielstände dieses Spiels                 │
+│   file(path) │  ③ runtime.js lädt index.html des Spiels, übernimmt <head>/<body>, führt     │
+│   ◄── File ──┤     Skripte der Reihe nach aus; fetch/XHR/<img>/<video>-Adressen unter der   │
+│   saves ────►│     virtuellen Basis werden über den Port beantwortet (nur dieses Spiel)     │
+│   ◄── ok ────┘  ④ IndexedDB-Nachbildung für IDBFS: Änderungen → RenOS → Tabelle „saves“      │
+└──────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Isolation:** `sandbox` ohne `allow-same-origin` gibt dem Dokument einen anonymen Origin. Es kann weder DOM noch Speicher, Cookies oder Service Worker von RenOS erreichen; jedes gestartete Spiel bekommt einen neuen anonymen Origin, Spiele sind also auch voneinander getrennt. RenOS bricht ab, falls es das Spieldokument lesen könnte (Gegenprobe beim Handshake). Keine Popups, keine Navigation des Hauptfensters.
+- **Keine zweite Website, kein Netzwerk:** Das Dokument entsteht per `srcdoc` aus RenOS selbst und funktioniert offline. Die CSP erlaubt nur `blob:`/`data:` als Quellen; die virtuelle Basis `https://renos-game.invalid/` (reservierte Domain) wird nie aufgelöst – Anfragen darauf beantwortet `runtime.js` aus RenOS. Ren’Py braucht `unsafe-inline`, `unsafe-eval` und `wasm-unsafe-eval` – nur in diesem Dokument.
+- **Laufzeit (`src/games/sandbox/runtime.js`):** ersetzt vor jedem Spielcode `fetch`, `XMLHttpRequest`, die `src`-Eigenschaft von Bild/Video/Audio, `indexedDB` (genau der von Emscriptens IDBFS genutzte Umfang), `localStorage`/`sessionStorage` (im Arbeitsspeicher), `navigator.serviceWorker` (nicht vorhanden) und `URL` (Basis `about:srcdoc` → virtuelle Basis). Range-Anfragen und MIME-Typen wie beim externen Host. Statusmeldungen (boot/progress/running/error/exit-request) gehen über denselben Port an den Player.
+- **RenOS-Seite (`src/games/sandboxHost.ts`, `src/games/local/saves.ts`):** Alles aus dem iframe gilt als nicht vertrauenswürdig – das Spiel teilt sich den Origin mit der Laufzeit und könnte sie verändern. Dateien: nur für das laufende, installierte Spiel und mit derselben Pfadprüfung wie beim Entpacken. Spielstände: nur für dieses Spiel, Namen/Schlüssel/Typen geprüft, Limits 64 MB pro Eintrag, 1 GB und 50 000 Einträge pro Spiel, Änderungen alles-oder-nichts in einer Transaktion. Beim Entfernen eines Spiels werden seine Spielstände gelöscht; „Spielstände übernehmen von …“ kopiert sie in eine neue Version.
+
+### Externer Spiele-Host (optional)
+
 ```
 ┌──────────── iPad: installierte Web-App RenOS (Origin A, z. B. idtbas.github.io) ─────────────┐
 │  Installer ─► Worker: ZIP lesen (Blob.slice, ZIP64, CRC) ─► OPFS  renos-games/<id>/…        │
@@ -48,12 +76,12 @@
 └──────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Warum die Dateien bei RenOS liegen:** Laut WebKit-Speicherrichtlinie dürfen Home-Bildschirm-Web-Apps bis zu 60 % des Datenträgers nutzen, ein iframe einer anderen Adresse aber nur 10 % davon. Mehrere Gigabyte große Spiele passen deshalb nur in den Speicher von RenOS selbst. Ausgeführt werden sie trotzdem auf Origin B.
+- **Warum die Dateien bei RenOS liegen:** Laut WebKit-Speicherrichtlinie dürfen Home-Bildschirm-Web-Apps bis zu 60 % des Datenträgers nutzen, ein iframe einer anderen Adresse aber nur 10 % davon. Mehrere Gigabyte große Spiele passen deshalb nur in den Speicher von RenOS selbst – bei beiden Hosts.
 - **Spiele-Host** (`apps/gamehost`, rein statisch): `host.html`/`host.js` (Handshake, Weiterleitung), `sw.js` (Dateiauslieferung, Offline-Cache der Host-Dateien), `bridge.js` (Statusmeldungen), `renos-gamehost.json` (Kennung für die Prüfung in den Einstellungen; GitHub Pages erlaubt CORS).
 - **Sicherheitsgrenzen:** RenOS nimmt den Handshake nur vom eigenen Player-iframe und vom eingestellten Spiele-Origin an, beantwortet Dateianfragen nur für das laufende Spiel, nur für installierte Spiele (Datenbankeintrag) und mit derselben Pfadprüfung wie beim Entpacken. Die Adresse des Spiele-Hosts muss sich von der RenOS-Adresse unterscheiden (geprüft in Einstellungen und Player). Ren’Pys eigener Service Worker wird nicht registriert, weil die Spielseite bereits vom Host-Service-Worker kontrolliert wird.
 - **Fremde Seiten, die den Spiele-Host einbetten:** Der statische Host kennt die RenOS-Adresse nicht im Voraus und nimmt den Handshake deshalb von jeder einbettenden Seite an. Das gibt dieser Seite keine Rechte über RenOS: Sie kann nur ihre *eigenen* Dateien ausliefern, und Browser trennen Speicher und Service Worker eingebetteter Seiten nach der Hauptseite (Storage Partitioning in Safari, Chrome und Firefox). Spielstände, die unter RenOS entstehen, sind für sie daher nicht erreichbar.
 - **Installation:** Analyse liest nur das Inhaltsverzeichnis (Millisekunden). Beim Entpacken liest ein BYOB-Reader in einen einzigen wiederverwendeten 4-MB-Puffer und schreibt über `createSyncAccessHandle()` (Rückfall: 4-MB-Abschnitte bzw. `createWritable()`). Gemessen in Chromium: 3,2 GB gespeichert in ~30 s mit +30 MB Arbeitsspeicher; 1,5 GB deflate mit +324 MB. Das Spiel erscheint erst nach erfolgreichem Datenbankeintrag; verwaiste Ordner werden beim Start entfernt.
-- **Offline:** RenOS (Workbox) und der Spiele-Host (eigener Service Worker) cachen ihre Shell; Spieldateien liegen ohnehin lokal. Der erste Start eines Spiels braucht eine Verbindung, damit der Host-Service-Worker installiert wird.
+- **Offline:** RenOS (Workbox) cacht seine Shell; Spieldateien liegen ohnehin lokal. Der eingebaute Host braucht nie eine Verbindung (E2E-Test startet ein echtes Spiel offline). Beim externen Host braucht der erste Start eine Verbindung, damit dessen Service Worker installiert wird.
 - **Modus-Wahl:** zur Build-Zeit über `VITE_RENOS_BACKEND=local`; `src/games/backend.ts` kapselt Server- und lokale Implementierung hinter derselben Schnittstelle.
 
 ## Repository-Struktur
@@ -75,13 +103,14 @@ renos/
 │     ├─ desktop/       Desktop, Systemleiste, Dock, Launcher, Panels, Kontextmenü- und Dialog-Host, Wallpaper
 │     ├─ apps/          Files, Library, Installer, Settings, Terminal, Notes, Player
 │     ├─ api/           API-Client (fetch + XHR-Upload) und Server-Store
+│     ├─ games/         Spiele-Backends (Server/lokal), Installation ins OPFS, eingebauter Spiele-Host (sandbox/), Spielstände
 │     ├─ persistence/   Dexie-Datenbank, virtuelles Dateisystem, Datensicherung
 │     ├─ pwa/           Service-Worker-Registrierung, dauerhafter Speicher
 │     ├─ shell/         Moduswahl (Install/Phone/Desktop), Onboarding, Fehlerbildschirme
 │     ├─ ui/            Wiederverwendbare Komponenten (Button, Form, Feedback, LoginForm, AppIcon)
 │     ├─ i18n/          Alle Texte (Deutsch), vorbereitet für weitere Sprachen
 │     └─ styles/        Design-Tokens (CSS Custom Properties) + Tailwind-Theme
-├─ apps/gamehost/       Statischer Spiele-Host für den lokalen Modus (zweiter Origin)
+├─ apps/gamehost/       Optionaler externer Spiele-Host für den lokalen Modus (zweiter Origin)
 ├─ e2e/                 Playwright-Tests (Server- und lokaler Modus), Testserver, eigenes Ren’Py-Testspiel
 ├─ assets/              Originale des Icon-Pakets und SVG-Quellen der ergänzten Icons
 ├─ scripts/             Asset-Generator, Passwort-Hash, Testspiel-Assembler
