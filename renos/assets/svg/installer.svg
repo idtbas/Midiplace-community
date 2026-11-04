@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Installer: Paket mit Pfeil nach unten (Stil angelehnt an das RenOS-Icon-Paket) -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d6167"/>
+      <stop offset="1" stop-color="#4c5055"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8d9096"/>
+      <stop offset="1" stop-color="#7a7d83"/>
+    </linearGradient>
+  </defs>
+  <rect x="52" y="92" width="152" height="126" rx="18" fill="url(#body)"/>
+  <rect x="40" y="62" width="176" height="44" rx="14" fill="url(#lid)"/>
+  <rect x="104" y="78" width="48" height="12" rx="6" fill="#5d6167" opacity=".55"/>
+  <rect x="118" y="120" width="20" height="56" rx="10" fill="#cdd0d4"/>
+  <path d="M97.6 160.4c-3.6-3.6-1-9.4 4-9.4h52.8c5 0 7.6 5.8 4 9.4l-26.4 27.8c-2.2 2.4-6 2.4-8.2 0z" fill="#cdd0d4"/>
+</svg>

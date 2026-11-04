@@ -1,0 +1,35 @@
+# RenOS mit Caddy als HTTPS-Reverse-Proxy (automatische Zertifikate von Let's Encrypt).
+# Voraussetzungen: zwei DNS-Einträge (z. B. renos.example.com und games.renos.example.com) zeigen auf den Server,
+# Ports 80/443 sind erreichbar. Anpassen: deploy/Caddyfile und deploy/renos.env (aus .env.example).
+services:
+  renos:
+    build:
+      context: ..
+    env_file: ./renos.env
+    environment:
+      NODE_ENV: production
+      RENOS_TRUST_PROXY: "true"
+    volumes:
+      - renos-data:/data
+    restart: unless-stopped
+    expose:
+      - "8787"
+      - "8788"
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - renos
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  renos-data:
+  caddy-data:
+  caddy-config:

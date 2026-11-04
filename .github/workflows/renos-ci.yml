@@ -1,0 +1,73 @@
+name: RenOS CI
+
+# Führt alle Prüfungen von RenOS auf GitHub aus – auch ohne eigenen Rechner:
+# Typecheck, Lint, Unit-/Integrationstests und Browser-E2E-Tests (Server- und lokaler Modus),
+# einschließlich eines echten Ren'Py-Laufzeittests mit dem eigenen Testspiel.
+on:
+  push:
+    paths: ['renos/**', '.github/workflows/renos-ci.yml']
+  pull_request:
+    paths: ['renos/**', '.github/workflows/renos-ci.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: renos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RENPY_VERSION: 8.5.3
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: renos
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: renos/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      # Offizielle Ren'Py-Laufzeit (nur Dateien; aus dem SDK wird nichts ausgeführt).
+      - name: Cache Ren'Py runtime
+        id: renpy-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/renpy
+          key: renpy-${{ env.RENPY_VERSION }}-runtime
+      - name: Download Ren'Py ${{ env.RENPY_VERSION }} (engine + web runtime)
+        if: steps.renpy-cache.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p renpy && cd renpy
+          curl -fsSL -o sdk.tar.bz2 "https://www.renpy.org/dl/${RENPY_VERSION}/renpy-${RENPY_VERSION}-sdk.tar.bz2"
+          curl -fsSL -o web.zip "https://www.renpy.org/dl/${RENPY_VERSION}/renpy-${RENPY_VERSION}-web.zip"
+          tar -xjf sdk.tar.bz2 "renpy-${RENPY_VERSION}-sdk/renpy.py" "renpy-${RENPY_VERSION}-sdk/renpy"
+          unzip -q web.zip -d "renpy-${RENPY_VERSION}-sdk"
+          rm sdk.tar.bz2 web.zip
+      - name: Assemble the RenOS test game as a web build
+        run: npm run testgame -- "${{ runner.temp }}/renpy/renpy-${RENPY_VERSION}-sdk"
+
+      - name: E2E (server mode)
+        run: npm run test:e2e
+      - name: E2E (local mode, as on GitHub Pages)
+        run: npm run test:e2e:local
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: |
+            renos/test-results
+            renos/playwright-report
+          retention-days: 7

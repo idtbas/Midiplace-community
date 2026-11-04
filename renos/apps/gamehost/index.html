@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>RenOS Spiele-Host</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #11151c; color: #e8ecf2; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      main { max-width: 560px; margin: 0 auto; padding: 48px 24px; }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      p { color: #a0acbc; }
+      code { background: #242b36; padding: 2px 6px; border-radius: 5px; color: #e8ecf2; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>RenOS Spiele-Host</h1>
+      <p>Diese Adresse führt Ren’Py-Spiele für RenOS aus – getrennt von RenOS selbst. Sie wird nicht direkt bedient.</p>
+      <p>In RenOS unter <strong>Settings → Spiele → Spiele-Host</strong> diese Adresse eintragen:</p>
+      <p><code id="url"></code></p>
+    </main>
+    <script>
+      document.getElementById('url').textContent = location.href.replace(/index\.html$/, '');
+    </script>
+  </body>
+</html>

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- RenOS Library: gestapelte Spiel-Cover mit Play-Symbol (Stil angelehnt an das RenOS-Icon-Paket) -->
+  <defs>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d6167"/>
+      <stop offset="1" stop-color="#4c5055"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8d9096"/>
+      <stop offset="1" stop-color="#7a7d83"/>
+    </linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b4b7bc"/>
+      <stop offset="1" stop-color="#a2a5aa"/>
+    </linearGradient>
+  </defs>
+  <rect x="80" y="40" width="96" height="44" rx="12" fill="url(#back)"/>
+  <rect x="62" y="54" width="132" height="44" rx="14" fill="url(#mid)"/>
+  <rect x="44" y="70" width="168" height="148" rx="20" fill="url(#front)"/>
+  <path d="M112 114.5c0-6 6.5-9.7 11.7-6.6l40.6 23.6c5.2 3 5.2 10.5 0 13.5l-40.6 23.6c-5.2 3-11.7-.7-11.7-6.7z" fill="#cdd0d4"/>
+</svg>
