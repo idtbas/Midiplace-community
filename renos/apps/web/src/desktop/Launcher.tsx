@@ -179,7 +179,7 @@ export function Launcher() {
                 onChange={(e) => setLauncherQuery(e.target.value)}
                 placeholder={t.launcher.placeholder}
                 aria-label={t.launcher.placeholder}
-                className="h-12 flex-1 bg-transparent text-md text-fg placeholder:text-fg-faint focus:outline-none"
+                className="h-12 flex-1 bg-transparent text-md text-fg outline-none placeholder:text-fg-faint focus:outline-none focus-visible:outline-none"
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"

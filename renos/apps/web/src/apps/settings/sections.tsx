@@ -416,7 +416,8 @@ export function StorageSection() {
           </p>
           {stats ? (
             <p className="mt-1 text-sm text-fg-subtle">
-              {stats.files} Dateien ({formatBytes(stats.bytes)}) · {stats.folders} Ordner · {stats.notes} Notizen
+              {stats.files === 1 ? '1 Datei' : `${stats.files} Dateien`} ({formatBytes(stats.bytes)}) · {stats.folders} Ordner ·{' '}
+              {stats.notes === 1 ? '1 Notiz' : `${stats.notes} Notizen`}
             </p>
           ) : null}
         </div>

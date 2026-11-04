@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/dev-dist/**', '**/node_modules/**', 'data/**', 'e2e/fixtures/**', 'test-results/**', 'playwright-report/**', 'apps/web/public/**'],
+    ignores: ['**/dist/**', '**/dev-dist/**', '**/node_modules/**', 'data/**', 'e2e/fixtures/**', 'e2e/.artifacts/**', 'test-results/**', 'playwright-report/**', 'apps/web/public/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

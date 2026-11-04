@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { MotionConfig } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
 import { enableBrowserMode, isStandalone, type AppMode } from '@/lib/platform';
@@ -7,11 +7,13 @@ import { initFileSystem } from '@/persistence/fs';
 import { requestPersistentStorage } from '@/pwa/register';
 import { prefersReducedMotion, useSettings } from '@/system/settings';
 import { clearSessionWindows } from '@/system/windows';
-import { Desktop } from '@/desktop/Desktop';
 import { Button } from '@/ui/Button';
-import { InstallPage } from './InstallPage';
-import { Onboarding } from './Onboarding';
 import { PhoneNotice } from './PhoneNotice';
+
+// Getrennt geladen: Die Installationsseite braucht keinen Desktop-Code und umgekehrt.
+const Desktop = lazy(() => import('@/desktop/Desktop').then((m) => ({ default: m.Desktop })));
+const Onboarding = lazy(() => import('./Onboarding').then((m) => ({ default: m.Onboarding })));
+const InstallPage = lazy(() => import('./InstallPage').then((m) => ({ default: m.InstallPage })));
 import { useApplySettings } from './useApplySettings';
 
 export function FatalScreen({ title, message }: { title: string; message: string }) {
@@ -93,5 +95,10 @@ export function Root({ initialMode }: { initialMode: AppMode }) {
     );
   else content = <DesktopBoot />;
 
-  return <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>{content}</MotionConfig>;
+  // Während Teile nachladen, bleibt der CSS-Startbildschirm aus index.html sichtbar.
+  return (
+    <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
+      <Suspense fallback={null}>{content}</Suspense>
+    </MotionConfig>
+  );
 }

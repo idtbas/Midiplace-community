@@ -83,7 +83,7 @@ export function Segmented<T extends string | number>({
           aria-checked={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'rounded-sm px-2.5 transition-colors duration-[var(--dur-fast)]',
+            'whitespace-nowrap rounded-sm px-2.5 transition-colors duration-[var(--dur-fast)]',
             size === 'sm' ? 'h-6 text-sm' : 'h-7 text-base',
             option.value === value ? 'bg-surface-3 text-fg shadow-sm' : 'text-fg-muted hover:text-fg',
           )}

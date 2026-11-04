@@ -1,0 +1,13 @@
+# RenOS – Reverse Proxy mit automatischem HTTPS.
+# Domains anpassen. Beide Hosts sollten zur selben registrierbaren Domain gehören (z. B. *.example.com),
+# damit Safari den Spielspeicher (Spielstände) nicht als Drittanbieter-Speicher behandelt.
+
+renos.example.com {
+	encode zstd gzip
+	reverse_proxy renos:8787
+}
+
+games.renos.example.com {
+	# Spieldaten (wasm, data, zip) sind bereits komprimiert – keine erneute Kompression nötig.
+	reverse_proxy renos:8788
+}
