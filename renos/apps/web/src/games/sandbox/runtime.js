@@ -234,8 +234,16 @@
       type: type, target: self, currentTarget: self, lengthComputable: total > 0, loaded: loaded || 0, total: total || 0,
       preventDefault: function () {}, stopPropagation: function () {}
     };
-    if (typeof self['on' + type] === 'function') self['on' + type](event);
-    (self._listeners[type] || []).slice().forEach(function (fn) { fn.call(self, event); });
+    // Fehler in Handlern des Spiels sind keine Netzwerkfehler: wie im Browser asynchron melden.
+    var call = function (fn) {
+      try {
+        fn.call(self, event);
+      } catch (error) {
+        setTimeout(function () { throw error; }, 0);
+      }
+    };
+    if (typeof self['on' + type] === 'function') call(self['on' + type]);
+    (self._listeners[type] || []).slice().forEach(call);
   };
   VirtualXHR.prototype._state = function (state) {
     this.readyState = state;

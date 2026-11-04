@@ -21,19 +21,22 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 | Installer | Client-Vorprüfung, Upload mit echtem Fortschritt und Abbruch, Server-Prüfung, Ergebnisanzeige, Installation mit Job-Fortschritt, Fehlerzustände, Übergabe aus Files | Server-Tests + E2E |
 | Library | Raster mit Covern, Suche, Sortierung, Filter, Details, Cover ändern/entfernen, Umbenennen, Entfernen, Speicherinfo, Leer-/Offline-/Login-Zustände | E2E |
 | Player | Getrennter Origin, Sandbox, Bridge, Lade-/Fehlerzustände, immersiver Modus, Steuerleiste, Ressourcenfreigabe | E2E inkl. echter Ren’Py-Laufzeit |
-| Ren’Py | Echter Web-Build (Ren’Py 8.5.3) läuft, Tastatur erreicht das Spiel, Spielstände überstehen Schließen + Neuladen | E2E `renpy.spec.ts` |
+| Ren’Py | Echter Web-Build (Ren’Py 8.6.0) läuft, Tastatur erreicht das Spiel, Spielstände überstehen Schließen + Neuladen | E2E `renpy.spec.ts` |
+| **Windows-/Linux-Spiele** | Ren’Py-Builds für Windows/Linux/Mac (und Projektordner) werden auf dem Gerät in Web-Builds umgewandelt: Erkennung von Version und Python-Generation, mitgelieferte Laufzeit **Ren’Py 8.6.0** (Python 3) und **7.8.7** (Python 2), `.rpa`-Archive (RPA-3.0/2.0/1.0) ohne Entpacken, Bilder/Musik/Stimmen/Videos werden nachgeladen, offline spielbar, Laufzeitpakete mit SHA-256-Prüfung | Unit + E2E mit „The Question“ als `-pc.zip` für Ren’Py 8 und 7 (Start, Archiv-Bilder, Musik, Spielstand, offline) |
 | Backend | Auth (scrypt, Sessions, CSRF, Origin, Rate Limit), ZIP-Sicherheit, atomare Installation, Game-Host, Cover, Aufräumen | 52 Server-Tests |
 | Lokaler Modus | RenOS ohne Server (GitHub Pages): Installation auf dem Gerät (OPFS), Browser-ZIP-Leser mit ZIP64/CRC | Unit + E2E `e2e/local` |
 | Eingebauter Spiele-Host | Jedes Spiel im sandboxed iframe mit anonymem Origin, ohne zweite Website: Dateien per MessagePort, IndexedDB-Nachbildung für Ren’Py-Spielstände, Spielstände pro Spiel bei RenOS (Anzeige, Übernahme in neue Version, Löschen mit dem Spiel), kein Netzwerk, offline | Unit + E2E inkl. echter Ren’Py-Laufzeit (Spielstände über Neuladen, offline) |
 | Externer Spiele-Host (optional) | statischer Host auf zweiter Adresse mit Service Worker, Einstellungen mit Prüfung | E2E inkl. echter Ren’Py-Laufzeit |
 | Große Spiele | 3,2-GB-Archiv lokal installiert (~30 s, +30 MB Speicher); Server-Limits 16 GB Upload / 32 GB entpackt | manuelle Messung in Chromium |
-| GitHub | CI-Workflow mit allen Tests (inkl. echter Ren’Py-Laufzeit, Server- und lokaler Modus) | CI auf GitHub grün (RenOS CI, Lauf #2) |
-| GitHub | Pages-Workflow (RenOS + Spiele-Host) | lokal gebaut; Veröffentlichung erst nach Merge in den Standard-Branch (Umgebungsschutz von `github-pages`), noch nicht auf GitHub gelaufen |
+| GitHub | CI-Workflow mit allen Tests (inkl. echter Ren’Py-Laufzeit 8.6.0 und 7.8.7, Server- und lokaler Modus, Windows/Linux-Umwandlung) | CI auf GitHub grün (RenOS CI, Lauf #9: 9/9 lokale E2E-Tests, keiner übersprungen) |
+| GitHub | Pages-Workflow (RenOS + Laufzeitpakete + optionaler Spiele-Host) | lokal gebaut; Veröffentlichung erst nach Merge in den Standard-Branch (Umgebungsschutz von `github-pages`), noch nicht auf GitHub gelaufen |
 | Deployment | `npm run build && npm start` im Produktionsmodus (CSP, Härtungs-Header, SPA-Fallback, gesperrte Verwaltung ohne Passwort) | manueller Smoke-Test |
 
 ## Implementiert, aber nicht verifiziert
 
 - **Lokaler Modus in Safari:** eingebauter Spiele-Host (sandboxed `srcdoc`-iframe, `blob:`-Skripte/Bilder, WebAssembly aus nachgebildeten Antworten, OPFS-Dateien per `MessagePort`), externer Host als fremdes iframe (partitionierter Service Worker/Speicher), `createSyncAccessHandle()` im Worker, BYOB-Reader auf Dateien (sonst automatischer Rückfall), tatsächlich gewährter Speicher für Multi-GB-Spiele.
+- **Echte Windows-/Linux-Visual-Novels aus dem Netz:** getestet ist „The Question“ in realistischer Verpackung. Große kommerzielle oder ältere Spiele (mehrere GB, Ren’Py 6, eigene Python-Module, verschlüsselte/abgewandelte Archive, Videos, Spiele mit Netzwerk- oder Steam-Funktionen) wurden nicht getestet.
+- **Arbeitsspeicher großer umgewandelter Spiele in Safari:** Skripte und GUI liegen im Speicher, Medien werden nachgeladen und nach kurzer Zeit wieder freigegeben (Ren’Py-Verhalten). Wie viel Safari auf dem iPad zulässt, ist nicht gemessen.
 - **Videos und Texteingaben im eingebauten Host:** Video-Adressen werden auf `blob:` umgelenkt, `renpy.input` nutzt ein Formular (`allow-forms`); beides ist implementiert, aber das Testspiel enthält kein Video und keine Texteingabe.
 - **Alles auf echter iPad-Hardware** (Magic Keyboard, Trackpad, Touch, Safe-Area, Stage Manager, Home-Bildschirm-Installation). Prüfliste: [TESTING.md](TESTING.md).
 - **Safari/WebKit-Verhalten** generell (alle automatisierten Tests laufen in Chromium).
@@ -54,7 +57,8 @@ Stand dieses Dokuments: entspricht dem eingecheckten Code. „Verifiziert“ hei
 - Server-Modus und externer Host: Alle Spiele teilen sich **einen** Spiele-Origin – von RenOS isoliert, untereinander aber nicht (Spielstände trennt Ren’Py über `config.save_directory`). Im eingebauten Host ist jedes Spiel getrennt.
 - Eingebauter Host: Spiele haben **keinen Netzwerkzugriff** (CSP). Spiele, die selbst Server kontaktieren, brauchen den externen Host. Spielstände sind nicht Teil der RenOS-Datensicherung (Sicherung über „Export Saves“ im Spiel).
 - Für Ren’Py sind im Spieldokument (Spiele-Origin bzw. eingebauter Host) `unsafe-inline`, `unsafe-eval` und `wasm-unsafe-eval` erlaubt – nie für RenOS selbst (siehe ARCHITECTURE.md).
-- Eine **automatische Konvertierung** von Ren’Py-Projektquellen oder Desktop-Builds in Web-Builds ist nicht enthalten; solche Archive werden erkannt und erklärt.
+- Die **Umwandlung von Windows-/Linux-/Mac-Builds** gibt es nur im lokalen Modus (RenOS auf GitHub Pages), nicht im Server-Modus. Sie ersetzt die Engine durch die Web-Laufzeit: Spiele mit nativen Python-Modulen, Netzwerk-/Steam-Funktionen oder Funktionen, die Ren’Py im Browser nicht hat, laufen nicht vollständig. Archive in unbekannten Formaten werden übersprungen und gemeldet. Spiele, die mit einer neueren Ren’Py-Version gebaut wurden als die mitgelieferte, laufen meist, aber nicht garantiert.
+- Laufzeitpakete (Ren’Py 8.6.0: 43 MB, 7.8.7: 21 MB) werden beim ersten Windows-/Linux-Spiel einmalig geladen; dafür muss das iPad online sein.
 - Server-Modus: Große Spiele sind **nicht offlinefähig**; der RenOS-Service-Worker speichert keine Spieldateien. Im **lokalen Modus** liegen Spiele auf dem Gerät und sind nach dem ersten Start offline spielbar.
 - Ren’Py lädt die `game.zip` eines Web-Builds vollständig in den Arbeitsspeicher. Sehr große Spiele funktionieren nur, wenn Bilder/Audio als einzelne Dateien nachgeladen werden (Standard beim Ren’Py-Web-Build mit „Progressive Downloading“).
 - Lokaler Modus: Veröffentlichung auf GitHub Pages nur vom Standard-Branch (Umgebungsschutz von `github-pages`).

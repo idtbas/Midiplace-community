@@ -159,6 +159,26 @@ export interface ArchiveAnalysis {
   runtime: 'wasm' | 'legacy' | null;
   checks: ArchiveCheck[];
   issues: AnalysisIssue[];
+  /**
+   * Nur im lokalen Modus: Windows-/Linux-/Mac-Build (oder Projektordner), den RenOS mit einer
+   * mitgelieferten Ren'Py-Web-Laufzeit in einen Web-Build umwandeln kann.
+   */
+  conversion?: ConversionInfo | null;
+}
+
+export interface ConversionInfo {
+  /** Ordner, der `game/` enthält (mit „/“ am Ende oder leer). */
+  root: string;
+  /** Ren'Py-Version des Spiels, falls erkennbar (z. B. „8.1.3“). */
+  engineVersion: string | null;
+  /** 3 = Ren'Py 8, 2 = Ren'Py 6/7; null = unbekannt (dann wird Python 3 angenommen). */
+  python: 2 | 3 | null;
+  platforms: Array<'windows' | 'linux' | 'mac'>;
+  /** Dateien unter game/ (ohne Caches) und ihre entpackte Größe. */
+  gameFiles: number;
+  gameBytes: number;
+  archives: number;
+  archiveBytes: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +233,8 @@ export interface Game {
   runtime: 'wasm' | 'legacy' | null;
   /** Vollständige URL des Spiels auf dem Game-Host. */
   playUrl: string;
+  /** Lokaler Modus: aus einem Desktop-Build umgewandelt (Ren'Py-Laufzeit von RenOS). */
+  conversion?: { runtime: string; engineVersion: string | null; python: 2 | 3 | null; platforms: Array<'windows' | 'linux' | 'mac'> } | null;
 }
 
 export interface GamesResponse {

@@ -4,6 +4,8 @@ RenOS ist eine Desktop-Umgebung als Progressive Web App für das **iPad mit Magi
 
 RenOS ersetzt iPadOS nicht. Es läuft als installierte Web-App („Zum Home-Bildschirm“) in einem eigenen Fenster.
 
+**Windows- und Linux-Visual-Novels auf dem iPad:** RenOS installiert die normalen Ren’Py-Downloads für Windows/Linux („…-pc.zip“) und wandelt sie auf dem Gerät in Web-Builds um – mit einer mitgelieferten Ren’Py-Laufzeit (Ren’Py 8.6 für aktuelle Spiele, Ren’Py 7.8 für ältere Python-2-Spiele). Siehe [„Windows- und Linux-Spiele“](#windows--und-linux-spiele).
+
 | Bereich | Inhalt |
 | --- | --- |
 | Desktop | Wallpaper, Systemleiste (Uhr, Netzwerk-/Serverstatus, Benachrichtigungen, Schnellaktionen), Dock, Launcher mit Suche, Kontextmenüs, Dialoge, Toasts |
@@ -49,9 +51,24 @@ Midiplace bleibt unverändert unter `https://<dein-name>.github.io/Midiplace-com
 
 ### 3. Spiele installieren und spielen
 
-1. Ren’Py-Web-Build (`…-web.zip`) in die **Dateien-App** des iPads legen (z. B. iCloud Drive, Download in Safari).
-2. RenOS → **Installer** → **ZIP-Datei auswählen**. Das Archiv wird auf dem iPad geprüft und entpackt – **nichts wird hochgeladen**, es gibt **kein Größenlimit** außer dem freien Speicher.
+1. Das Spiel als ZIP-Datei in die **Dateien-App** des iPads legen (z. B. iCloud Drive, Download in Safari) – den **Windows-/Linux-Download** („…-pc.zip“), die Mac-Version oder einen Web-Build („…-web.zip“).
+2. RenOS → **Installer** → **ZIP-Datei auswählen**. Das Archiv wird auf dem iPad geprüft – **nichts wird hochgeladen**, es gibt **kein Größenlimit** außer dem freien Speicher. Windows-/Linux-Builds werden dabei umgewandelt (beim ersten Mal wird einmalig die Ren’Py-Laufzeit geladen, 21–43 MB).
 3. Die Library zeigt das Spiel; **Spielen** startet es im **eingebauten Spiele-Host**. Es gibt nichts einzurichten.
+
+### Windows- und Linux-Spiele
+
+Ren’Py-Spiele bestehen aus der Engine (für Windows, Linux oder Mac kompiliert) und dem Ordner `game/` mit Skripten, Bildern, Musik und Stimmen. Die Spieldaten sind auf allen Plattformen gleich – RenOS tauscht deshalb nur die Engine gegen die offizielle **Ren’Py-Web-Laufzeit** aus, so wie es der Ren’Py-Launcher beim Bau eines Web-Builds tut:
+
+- **Erkennung:** Spielordner (auch in Mac-Apps), Ren’Py-Version (`renpy/vc_version.py`), Python-Generation. Ren’Py 8 → Laufzeit **8.6.0**, Ren’Py 6/7 (Python 2) → Laufzeit **7.8.7**.
+- **Skripte, Schriften, GUI** kommen in die `game.zip` und werden beim Start geladen.
+- **Bilder, Musik, Stimmen, Videos** werden beim Spielen aus dem iPad-Speicher **nachgeladen** (Ren’Pys „Progressive Downloading“) – auch mehrere Gigabyte große Spiele brauchen so nur wenig Arbeitsspeicher.
+- **`.rpa`-Archive** (RPA-3.0, 2.0, 1.0) werden nicht entpackt: RenOS liest ihr Inhaltsverzeichnis und liefert Dateien direkt als Ausschnitt des Archivs – kein doppelter Speicherbedarf. Archive, die nur Skripte enthalten, werden nach der Umwandlung gelöscht.
+- **Offline:** Laufzeit und Spiel liegen auf dem iPad; umgewandelte Spiele starten ohne Internet.
+- **Library:** zeigt bei umgewandelten Spielen Herkunft, Spielversion und Laufzeit; **Settings → Spiele** zeigt die installierten Laufzeiten.
+
+Die Laufzeitpakete entstehen beim Veröffentlichen auf GitHub aus den offiziellen Ren’Py-SDKs von renpy.org (unverändert; Ren’Py steht unter der MIT-Lizenz, enthaltene Bibliotheken u. a. unter LGPL). Jedes Paket enthält die `LICENSE.txt` des SDK (`renos/runtimes/renpy-<version>/LICENSE.txt`).
+
+Grenzen: Spiele, die eigene Python-Module mit nativem Code, Netzwerkzugriffe oder Funktionen nutzen, die es in der Web-Version von Ren’Py nicht gibt (z. B. Steam-Anbindung), laufen nicht oder nur teilweise. Archive in selbst erfundenen Formaten (manche Spiele verschlüsseln sie) werden erkannt, übersprungen und gemeldet. Ein Spiel, das mit einer neueren Ren’Py-Version als der mitgelieferten gebaut wurde, startet meist trotzdem – RenOS weist darauf hin.
 
 ### Der eingebaute Spiele-Host
 
@@ -149,6 +166,9 @@ Weitere Befehle:
 | `npm run test:e2e` | Build + Playwright-Browsertests (Server-Modus) |
 | `npm run build:pages` | Statischer Build für den lokalen Modus (`RENOS_BASE` = Pfad, Standard `/renos/`) |
 | `npm run test:e2e:local` | Build + Browsertests des lokalen Modus (wie GitHub Pages, ohne Server) |
+| `scripts/fetch-renpy.sh <version> <ordner>` | Offizielles Ren’Py-SDK samt Web-Paket laden (nur Dateien, nichts wird ausgeführt) |
+| `RENPY_SDKS=<sdk8>,<sdk7> npm run build:pages` | Statischer Build mit Ren’Py-Laufzeitpaketen (für Windows-/Linux-Spiele) |
+| `RENPY_SDKS=<sdk8>,<sdk7> npm run testgame:desktop` | Windows/Linux-Testbuilds („The Question“ mit .rpa-Archiven) für die E2E-Tests |
 | `npm run hash-password` | scrypt-Hash für das Owner-Passwort erzeugen |
 | `npm run assets` | Icons, PWA-Icons und Wallpaper aus `assets/` neu erzeugen |
 | `npm run testgame -- <sdk>` | Ren’Py-Testspiel als Web-Build zusammensetzen (siehe TESTING.md) |
@@ -199,7 +219,7 @@ Im lokalen Modus siehe oben „Spiele installieren“.
 3. In RenOS den **Installer** öffnen, mit dem Owner-Passwort anmelden, **ZIP-Datei auswählen**.
 4. Das Prüfergebnis zeigt, ob es ein installierbarer Web-Build ist. **Installieren** → das Spiel erscheint in der **Library**.
 
-Erkannt werden: unterstützter Ren’Py-Web-Build · Ren’Py-Projektquellen (nicht direkt lauffähig) · Ren’Py-Desktop-Build (Windows/Linux/macOS, im Browser nicht lauffähig) · unbekannte bzw. ungültige Archive. Eine automatische Konvertierung von Projektquellen ist **nicht** enthalten.
+Erkannt werden: unterstützter Ren’Py-Web-Build · Ren’Py-Projektquellen · Ren’Py-Build für Windows/Linux/macOS · unbekannte bzw. ungültige Archive. Der **Server-Modus** installiert nur Web-Builds; die Umwandlung von Windows-/Linux-/Mac-Builds und Projekten gibt es im **lokalen Modus** (RenOS auf GitHub Pages).
 
 **Spielstände:** Ren’Py speichert im Browser (IndexedDB des Spiele-Origins). Über das ☰-Menü oben links im Spiel lassen sich Spielstände exportieren und importieren – empfehlenswert als Sicherung.
 
