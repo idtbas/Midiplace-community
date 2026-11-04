@@ -190,6 +190,7 @@ export function isEncrypted(entry: ZipEntry): boolean {
 }
 
 const CHUNK = 4 * 1024 * 1024;
+export const CRC_LIMIT = 256 * 1024 * 1024;
 
 /**
  * Liest einen Byte-Bereich einer Datei in Abschnitten.
@@ -236,10 +237,13 @@ export async function* readEntryChunks(blob: Blob, entry: ZipEntry): AsyncGenera
   const expected = entry.uncompressedSize;
   let total = 0;
   let crc = 0;
+  // Gröber bei sehr großen Dateien: Größe wird immer geprüft, die Prüfsumme nur bis 256 MB
+  // (spart auf dem iPad bei Gigabyte-Archiven viel Zeit).
+  const verifyCrc = expected <= CRC_LIMIT;
   const check = (chunk: Uint8Array) => {
     total += chunk.byteLength;
     if (total > expected) throw new ZipFormatError('entry larger than declared');
-    crc = crc32(chunk, crc);
+    if (verifyCrc) crc = crc32(chunk, crc);
   };
 
   if (entry.method === 0) {
@@ -282,7 +286,7 @@ export async function* readEntryChunks(blob: Blob, entry: ZipEntry): AsyncGenera
     throw new ZipFormatError('unsupported compression');
   }
   if (total !== expected) throw new ZipFormatError('entry size mismatch');
-  if (crc !== entry.crc32) throw new ZipFormatError('crc mismatch');
+  if (verifyCrc && crc !== entry.crc32) throw new ZipFormatError('crc mismatch');
 }
 
 /** Entpackter Inhalt als Stream (für kleine Dateien und Tests; kopiert jeden Abschnitt). */

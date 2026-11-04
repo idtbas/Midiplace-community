@@ -340,6 +340,7 @@ export const de = {
       install: 'Umwandeln & installieren',
       stepRuntime: 'Ren’Py-Laufzeit laden',
       stepConvert: 'Spiel umwandeln',
+      stepScan: 'Dateien prüfen',
       done: (remote: number) => `Umgewandelt. ${remote} Dateien (Bilder, Musik, Stimmen, Videos) werden beim Spielen nachgeladen.`,
       unsupportedArchives: (list: string) => `Diese Archive haben ein unbekanntes Format und wurden übersprungen – das Spiel läuft womöglich nicht vollständig: ${list}`,
       platforms: { windows: 'Windows', linux: 'Linux', mac: 'macOS' } as Record<'windows' | 'linux' | 'mac', string>,

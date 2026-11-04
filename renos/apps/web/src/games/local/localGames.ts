@@ -31,6 +31,7 @@ type Pending = {
   resolve: (value: WorkerResponse) => void;
   reject: (error: unknown) => void;
   onProgress?: (bytes: number, files: number) => void;
+  onStage?: (done: number, total: number) => void;
 };
 
 /** Basisadresse der Ren'Py-Laufzeitpakete auf der RenOS-Website. */
@@ -48,6 +49,10 @@ function getWorker(): Worker {
     if (!entry) return;
     if (msg.type === 'progress') {
       entry.onProgress?.(msg.bytesWritten, msg.filesWritten);
+      return;
+    }
+    if (msg.type === 'stage') {
+      entry.onStage?.(msg.done, msg.total);
       return;
     }
     if (msg.type === 'runtime-progress') {
@@ -69,11 +74,11 @@ function getWorker(): Worker {
 
 type CallRequest = WorkerRequest extends infer R ? (R extends { type: 'analyze' | 'install' | 'convert' | 'runtime' } ? Omit<R, 'id'> : never) : never;
 
-function call(request: CallRequest, onProgress?: Pending['onProgress']) {
+function call(request: CallRequest, onProgress?: Pending['onProgress'], onStage?: Pending['onStage']) {
   seq += 1;
   const id = seq;
   const promise = new Promise<WorkerResponse>((resolve, reject) => {
-    pending.set(id, { resolve, reject, onProgress });
+    pending.set(id, { resolve, reject, onProgress, onStage });
     getWorker().postMessage({ ...request, id } as WorkerRequest);
   });
   return { id, promise };
@@ -383,7 +388,7 @@ export async function readInstalledGameFile(gameId: string, path: string): Promi
 
 // ----- Umwandlung von Windows-/Linux-/Mac-Builds -----------------------------
 
-export type ConvertPhase = 'runtime' | 'convert';
+export type ConvertPhase = 'runtime' | 'scan' | 'convert';
 
 export interface ConvertHandle {
   promise: Promise<{ game: Game; report: ConvertReport; runtime: RuntimeSummary }>;
@@ -429,6 +434,7 @@ export function installConvertedGame(
     const job = call(
       { type: 'convert', file, gameId, root: conversion.root, title: sanitizeTitle(title, analysis.detectedTitle ?? 'Unbenanntes Spiel'), runtimeId: runtime.id, limits: LOCAL_LIMITS },
       (bytes) => onProgress('convert', bytes, total),
+      (done, count) => onProgress('scan', done, count),
     );
     workerId = job.id;
     const result = await job.promise;
