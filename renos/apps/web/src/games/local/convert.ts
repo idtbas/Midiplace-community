@@ -67,8 +67,15 @@ export interface ConvertReport {
 
 export const WEB_MANIFEST = 'renos-web.json';
 
-const JS_STUB = `# RenOS: Ersatz für das Browser-Modul „js“ (Pyodide), das manche Spiele für optionale
-# Web-Funktionen importieren. Die Ren'Py-Web-Laufzeit hat es nicht; alle Aufrufe tun nichts.
+const WEBSTUB = `# RenOS: Ersatz für Browser-Module aus Pyodide/PyScript (js, pyodide, pyodide_js, pyscript, micropip),
+# die manche Spiele für optionale Web-Funktionen importieren. Die Ren'Py-Web-Laufzeit hat sie nicht.
+# Alle Attribute und Aufrufe liefern ein leeres, „falsches“ Objekt; Untermodule entstehen automatisch.
+import sys
+import types
+
+PREFIXES = ("js", "pyodide", "pyodide_js", "pyscript", "micropip")
+
+
 class _JsProxy(object):
     def __getattr__(self, name):
         if name.startswith("__"):
@@ -99,13 +106,55 @@ class _JsProxy(object):
         return ""
 
 
-window = document = console = globalThis = navigator = localStorage = _JsProxy()
+class StubModule(types.ModuleType):
+    def __getattr__(self, name):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return _JsProxy()
 
 
-def __getattr__(name):
-    if name.startswith("__"):
-        raise AttributeError(name)
-    return _JsProxy()
+def stub_module(name):
+    module = StubModule(name)
+    module.__path__ = []
+    module.__file__ = "<renos-stub>"
+    return module
+
+
+class _Finder(object):
+    def _match(self, fullname):
+        return fullname.split(".")[0] in PREFIXES
+
+    # Python 3
+    def find_spec(self, fullname, path=None, target=None):
+        if not self._match(fullname):
+            return None
+        import importlib.util
+        return importlib.util.spec_from_loader(fullname, self, is_package=True)
+
+    def create_module(self, spec):
+        return stub_module(spec.name)
+
+    def exec_module(self, module):
+        pass
+
+    # Python 2 (Ren'Py 7)
+    def find_module(self, fullname, path=None):
+        return self if self._match(fullname) else None
+
+    def load_module(self, fullname):
+        module = sys.modules.get(fullname) or stub_module(fullname)
+        sys.modules[fullname] = module
+        return module
+
+
+if not any(isinstance(f, _Finder) for f in sys.meta_path):
+    sys.meta_path.append(_Finder())
+`;
+
+const WEBSTUB_ENTRY = `import sys
+import _renos_webstub
+
+sys.modules[__name__] = _renos_webstub.stub_module(__name__)
 `;
 
 /** Verzeichnis für RenOS: Datei → [Archiv, Präfix (Base64), [[Position, Länge], …]]. */
@@ -413,11 +462,17 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
       });
     }
     await writer.addBytes('game/renpyweb_remote_files.txt', new TextEncoder().encode(remoteFilesText(remote)));
-    // Ersatz für das Browser-Modul „js“, falls das Spiel keins mitbringt (sonst „No module named 'js'“).
-    if (![...table.keys()].some((p) => /(^|\/)js(\.py|\/__init__\.py)$/i.test(p))) {
-      const stub = new TextEncoder().encode(JS_STUB);
-      await writer.addBytes('js.py', stub);
-      if (!writer.has('game/python-packages/js.py')) await writer.addBytes('game/python-packages/js.py', stub);
+    // Ersatz für Browser-Module aus Pyodide/PyScript (js, pyodide, …), falls das Spiel sie importiert und
+    // nicht selbst mitbringt (sonst „No module named 'js'“ / „'pyodide'“). Untermodule liefert ein Import-Hook.
+    const own = (name: string) => [...table.keys()].some((p) => new RegExp(`(^|/)${name}(\\.py|/__init__\\.py)$`, 'i').test(p));
+    const enc = new TextEncoder();
+    const stubs: Array<[string, string]> = [['_renos_webstub.py', WEBSTUB]];
+    for (const name of ['js', 'pyodide_js', 'pyscript', 'micropip']) if (!own(name)) stubs.push([`${name}.py`, WEBSTUB_ENTRY]);
+    if (!own('pyodide')) stubs.push(['pyodide/__init__.py', WEBSTUB_ENTRY]);
+    for (const [name, text] of stubs) {
+      for (const target of [name, `game/python-packages/${name}`]) {
+        if (!writer.has(target)) await writer.addBytes(target, enc.encode(text));
+      }
     }
     // Ren'Py 7 (renpyweb) liest das Startbild aus der game.zip.
     if (presplash && runtime.generation === 'renpyweb') await writer.addBytes(`web-presplash.${presplashExt}`, new Uint8Array(await presplash.arrayBuffer()));
