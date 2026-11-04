@@ -1,6 +1,3 @@
-import { zlibSync } from 'fflate';
-import { crc32 } from './crc32';
-
 /**
  * Planung der Umwandlung von Ren'Py-Desktop-Builds (Windows, Linux, Mac) in Web-Builds.
  *
@@ -173,44 +170,6 @@ export const PLACEHOLDER_PNG = Uint8Array.from([
   0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d,
   0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ]);
-
-/**
- * Transparentes PNG in der Größe w×h (Palette mit 1 Bit, durchsichtig) – stark komprimiert, meist wenige
- * hundert Bytes. Dient als Platzhalter mit den echten Maßen eines nachgeladenen Bildes.
- */
-export function placeholderPng(w: number, h: number): Uint8Array {
-  const rowBytes = 1 + Math.ceil(w / 8);
-  const raw = new Uint8Array(rowBytes * h);
-  const chunk = (type: string, data: Uint8Array): Uint8Array => {
-    const out = new Uint8Array(12 + data.byteLength);
-    const view = new DataView(out.buffer);
-    view.setUint32(0, data.byteLength);
-    for (let i = 0; i < 4; i += 1) out[4 + i] = type.charCodeAt(i);
-    out.set(data, 8);
-    view.setUint32(8 + data.byteLength, crc32(out.subarray(4, 8 + data.byteLength)));
-    return out;
-  };
-  const ihdr = new Uint8Array(13);
-  new DataView(ihdr.buffer).setUint32(0, w);
-  new DataView(ihdr.buffer).setUint32(4, h);
-  ihdr.set([1, 3, 0, 0, 0], 8); // 1 Bit, Palette
-  const parts = [
-    Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr),
-    chunk('PLTE', Uint8Array.from([0, 0, 0])),
-    chunk('tRNS', Uint8Array.from([0])),
-    chunk('IDAT', zlibSync(raw, { level: 9 })),
-    chunk('IEND', new Uint8Array(0)),
-  ];
-  const total = parts.reduce((n, p) => n + p.byteLength, 0);
-  const png = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    png.set(p, at);
-    at += p.byteLength;
-  }
-  return png;
-}
 
 /** Ren'Py-Laufzeit für die Python-Generation des Spiels wählen (neueste passende). */
 export function chooseRuntime<T extends { python: number; version: string }>(available: T[], python: 2 | 3 | null): T | null {
