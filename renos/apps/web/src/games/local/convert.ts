@@ -13,6 +13,7 @@
  *
  * Die Laufzeitdateien (WebAssembly-Engine usw.) liegen einmal für alle Spiele in renos-runtimes/<id>/.
  */
+import { Inflate } from 'fflate';
 import { crc32 } from './crc32';
 import { CLASSIFY_LIMITS, Classifier, PLACEHOLDER_PNG, escapeHtml, mediaKind, remoteFilesText, skipGameFile } from './desktop';
 import { IMAGE_HEADER_BYTES, imageSize } from './imageSize';
@@ -40,6 +41,8 @@ export interface ConvertParams {
   maxBytes: number;
   isCancelled: () => boolean;
   progress: (bytesWritten: number, filesWritten: number) => void;
+  /** Live-Protokoll für die Anzeige im Installer. */
+  log?: (text: string) => void;
   /** Abschnitte ohne Schreibfortschritt (z. B. Prüfen der Dateien) melden. */
   stage?: (stage: 'scan', done: number, total: number) => void;
 }
@@ -108,22 +111,21 @@ async function readHead(file: File, entry: ZipEntry, max: number): Promise<Uint8
 async function readHeadFast(file: File, entry: ZipEntry, max: number): Promise<Uint8Array> {
   const start = await entryDataStart(file, entry);
   if (entry.method === 0) return new Uint8Array(await file.slice(start, start + Math.min(max, entry.compressedSize)).arrayBuffer());
-  // Deflate: max Bytes Ausgabe brauchen höchstens etwa max Bytes Eingabe (+ Reserve).
-  const input = file.slice(start, start + Math.min(entry.compressedSize, max + 65_536));
-  const reader = input.stream().pipeThrough(new DecompressionStream('deflate-raw') as unknown as TransformStream<Uint8Array, Uint8Array>).getReader();
+  // Deflate: max Bytes Ausgabe brauchen höchstens etwa max Bytes Eingabe (+ Reserve). fflate statt Browser-Streams.
+  const input = new Uint8Array(await file.slice(start, start + Math.min(entry.compressedSize, max + 65_536)).arrayBuffer());
   const parts: Uint8Array[] = [];
   let total = 0;
   try {
-    while (total < max) {
-      const { done, value } = await reader.read();
-      if (done || !value) break;
-      parts.push(value.slice(0, max - total));
-      total += parts[parts.length - 1]!.byteLength;
-    }
+    const inflate = new Inflate((data) => {
+      if (total < max) {
+        parts.push(data.slice(0, max - total));
+        total += parts[parts.length - 1]!.byteLength;
+      }
+    });
+    inflate.push(input, false);
   } catch {
     /* abgeschnittene Eingabe – was bis dahin entpackt wurde, reicht */
   }
-  void reader.cancel().catch(() => undefined);
   const out = new Uint8Array(total);
   let at = 0;
   for (const p of parts) {
@@ -171,6 +173,9 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     report();
   };
 
+  const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+  const log = (text: string) => params.log?.(text);
+  log(`Laufzeit ${runtimeId} bereit, Spielordner „${gamePrefix}“`);
   // 1. Dateien unter game/ einsammeln.
   const loose = new Map<string, AcceptedEntry>();
   const archiveEntries: AcceptedEntry[] = [];
@@ -185,6 +190,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     else if (!skipGameFile(rel)) loose.set(rel, item);
   }
 
+  log(`${loose.size} Dateien, ${archiveEntries.length} Archive gefunden`);
   // 2. Archive ins OPFS kopieren und ihr Inhaltsverzeichnis lesen.
   const archiveNames: string[] = [];
   const archivePaths: string[] = [];
@@ -197,13 +203,25 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     abortIfCancelled(params);
     const name = `archives/${archiveNames.length}.rpa`;
     const handle = await fileHandle(name);
-    await writeChunks(handle, readEntryChunks(file, item.entry), count);
+    log(`Kopiere Archiv ${item.path.slice(gamePrefix.length)} (${mb(item.size)}) …`);
+    let copied = 0;
+    let nextLog = 256 * 1024 * 1024;
+    await writeChunks(handle, readEntryChunks(file, item.entry), (n) => {
+      count(n);
+      copied += n;
+      if (copied >= nextLog) {
+        log(`  … ${mb(copied)} von ${mb(item.size)}`);
+        nextLog += 256 * 1024 * 1024;
+      }
+    });
     const archiveFile = await handle.getFile();
+    log(`  kopiert, lese Inhaltsverzeichnis …`);
     const stem = item.path.slice(gamePrefix.length, -4).toLowerCase();
     const rpi = rpiEntries.get(stem);
     try {
       const rpiBlob = rpi ? new Blob([(await readAll(file, rpi.entry)) as Uint8Array<ArrayBuffer>]) : undefined;
       const { index, skipped } = await readRpaIndex(archiveFile, rpiBlob);
+      log(`  ${index.size} Dateien im Archiv${skipped ? `, ${skipped} unsichere übersprungen` : ''}`);
       skippedMembers += skipped;
       archiveNames.push(name);
       archivePaths.push(item.path);
@@ -212,6 +230,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
       filesWritten += 1;
     } catch (error) {
       if (!(error instanceof RpaError)) throw error;
+      log(`  Unbekanntes Archivformat – übersprungen${error.header ? ` (${error.header})` : ''}`);
       unsupportedArchives.push(`${item.path.slice(gamePrefix.length)}${error.header ? ` (${error.header})` : ''}`);
       await gameDir.getDirectoryHandle('archives').then((d) => d.removeEntry(name.slice('archives/'.length))).catch(() => undefined);
     }
@@ -227,6 +246,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
   }
   for (const [rel, entry] of loose) table.set(rel, { kind: 'loose', entry });
 
+  log(`Prüfe ${table.size} Dateien (sofort laden oder bei Bedarf) …`);
   // 4. Einteilen: sofort laden (game.zip) oder bei Bedarf.
   const classifier = new Classifier(CLASSIFY_LIMITS);
   const remote = new Map<string, string>();
@@ -258,11 +278,13 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
 
   params.stage?.('scan', table.size, table.size);
 
+  log(`${remote.size} Dateien werden bei Bedarf geladen, ${placement.size - remote.size} sofort`);
   // 5. Nachladbare lose Dateien ins OPFS kopieren.
   for (const [rel, kind] of placement) {
     const source = table.get(rel)!;
     if (kind !== 'remote' || source.kind !== 'loose') continue;
     abortIfCancelled(params);
+    if (source.entry.size > 64 * 1024 * 1024) log(`Kopiere ${rel} (${mb(source.entry.size)})`);
     await writeChunks(await fileHandle(`game/${rel}`), readEntryChunks(file, source.entry.entry), count);
     filesWritten += 1;
   }
@@ -277,6 +299,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
   const coverSource = presplashSource ?? findSource('gui/main_menu.png', 'gui/main_menu.jpg', 'gui/main_menu.webp');
   const cover = presplash ?? (coverSource && coverSource[1] && (coverSource[1].kind === 'loose' ? coverSource[1].entry.size : coverSource[1].member.size) <= 8 * 1024 * 1024 ? await blobOf(coverSource[1]) : null);
 
+  log('Schreibe game.zip (Engine, Skripte, GUI) …');
   // 7. game.zip schreiben.
   const zipHandle = await fileHandle('game.zip');
   const sink = await openSink(zipHandle);
@@ -357,6 +380,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     throw error;
   }
   await sink.close();
+  log(`game.zip fertig (${localFiles} Spieldateien, ${mb(localBytes)})`);
   filesWritten += 1;
 
   // 8. Startseite (index.html) der Laufzeit mit dem Titel des Spiels.
@@ -388,6 +412,7 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
   }
 
   report(true);
+  log('Umwandlung abgeschlossen');
   return {
     bytesWritten,
     filesWritten,

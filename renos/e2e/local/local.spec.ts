@@ -344,6 +344,9 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         await expect(win.getByTestId('installer-runtime')).toContainText(`Ren’Py ${runtime}`);
         await expect(win.locator('#installer-title')).toHaveValue('The Question');
         await win.getByTestId('installer-install').click();
+        // Live-Protokoll während der Umwandlung.
+        await expect(win.getByTestId('installer-log')).toContainText('Kopiere Archiv', { timeout: 60_000 });
+        await expect(win.getByTestId('installer-live')).toContainText('letzte Aktivität');
         await expect(win.getByTestId('installer-done')).toBeVisible({ timeout: 240_000 });
         await expect(win.getByTestId('installer-note')).toContainText('nachgeladen');
 

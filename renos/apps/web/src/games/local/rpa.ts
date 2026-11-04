@@ -1,3 +1,4 @@
+import { Unzlib } from 'fflate';
 import { checkEntryPath } from '@renos/shared';
 import { PickleError, PyBytes, PyDict, PyTuple, unpickle, type PyValue } from './pickle';
 
@@ -30,23 +31,20 @@ export class RpaError extends Error {
 const MAX_INDEX_BYTES = 256 * 1024 * 1024;
 
 async function inflateZlib(blob: Blob): Promise<Uint8Array> {
-  const stream = blob.stream().pipeThrough(new DecompressionStream('deflate') as unknown as TransformStream<Uint8Array, Uint8Array>);
-  const reader = stream.getReader();
+  // fflate (reines JavaScript) statt Browser-Streams; Daten hinter dem zlib-Ende werden ignoriert.
+  const input = new Uint8Array(await blob.arrayBuffer());
   const parts: Uint8Array[] = [];
   let total = 0;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
+    const unzlib = new Unzlib((data) => {
+      total += data.byteLength;
       if (total > MAX_INDEX_BYTES) throw new RpaError('Archivindex zu groß');
-      parts.push(value);
-    }
+      parts.push(data);
+    });
+    unzlib.push(input, true);
   } catch (error) {
-    // Daten hinter dem Ende des zlib-Stroms (z. B. angehängte Signaturen) sind unschädlich.
-    if (error instanceof RpaError || !parts.length) throw error instanceof RpaError ? error : new RpaError('Archivindex beschädigt');
-  } finally {
-    reader.releaseLock();
+    if (error instanceof RpaError) throw error;
+    if (!parts.length) throw new RpaError('Archivindex beschädigt');
   }
   const out = new Uint8Array(total);
   let at = 0;

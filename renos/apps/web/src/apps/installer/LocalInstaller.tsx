@@ -33,7 +33,20 @@ type Phase =
       /** Nur bei Desktop-Builds: passende Ren'Py-Laufzeit (undefined = wird noch geprüft). */
       runtime?: (RuntimeSummary & { installed: boolean }) | null;
     }
-  | { name: 'installing'; file: File; analysis: ArchiveAnalysis; bytes: number; files: number; total: number; step: ConvertPhase | 'copy'; cancel: () => void }
+  | {
+      name: 'installing';
+      file: File;
+      analysis: ArchiveAnalysis;
+      bytes: number;
+      files: number;
+      total: number;
+      step: ConvertPhase | 'copy';
+      cancel: () => void;
+      /** Live-Protokoll und Zeitpunkt der letzten Aktivität (für Tempo und Hänger-Erkennung). */
+      log: string[];
+      startedAt: number;
+      lastActivity: number;
+    }
   | { name: 'done'; game: Game; note?: string; warning?: string }
   | { name: 'error'; message: string };
 
@@ -95,10 +108,29 @@ export function LocalInstaller({ payload }: AppProps) {
   const install = (file: File, analysis: ArchiveAnalysis, title: string) => {
     const hostUrl = gameHostUrl(useSettings.getState().gameHostUrl) ?? '';
     if (analysis.conversion) {
-      const handle = installConvertedGame(file, analysis, title, hostUrl, (step, done, total) =>
-        setPhase((p) => (p.name === 'installing' ? { ...p, step, bytes: done, total: total || 1 } : p)),
+      const stamp = () => new Date().toLocaleTimeString('de-DE');
+      const handle = installConvertedGame(
+        file,
+        analysis,
+        title,
+        hostUrl,
+        (step, done, total) => setPhase((p) => (p.name === 'installing' ? { ...p, step, bytes: done, total: total || 1, lastActivity: Date.now() } : p)),
+        (text) => setPhase((p) => (p.name === 'installing' ? { ...p, log: [...p.log, `${stamp()}  ${text}`].slice(-300), lastActivity: Date.now() } : p)),
       );
-      setPhase({ name: 'installing', file, analysis, bytes: 0, files: 0, total: analysis.conversion.gameBytes || 1, step: 'convert', cancel: handle.cancel });
+      const now = Date.now();
+      setPhase({
+        name: 'installing',
+        file,
+        analysis,
+        bytes: 0,
+        files: 0,
+        total: analysis.conversion.gameBytes || 1,
+        step: 'convert',
+        cancel: handle.cancel,
+        log: [`${stamp()}  Installation gestartet: ${file.name} (${formatBytes(file.size)})`],
+        startedAt: now,
+        lastActivity: now,
+      });
       handle.promise.then(({ game, report }) => {
         upsertGame(game);
         void loadStorage();
@@ -112,8 +144,8 @@ export function LocalInstaller({ payload }: AppProps) {
       }, failed);
       return;
     }
-    const handle = installLocalGame(file, analysis, title, hostUrl, (bytes, files) => setPhase((p) => (p.name === 'installing' ? { ...p, bytes, files } : p)));
-    setPhase({ name: 'installing', file, analysis, bytes: 0, files: 0, total: analysis.uncompressedBytes || 1, step: 'copy', cancel: handle.cancel });
+    const handle = installLocalGame(file, analysis, title, hostUrl, (bytes, files) => setPhase((p) => (p.name === 'installing' ? { ...p, bytes, files, lastActivity: Date.now() } : p)));
+    setPhase({ name: 'installing', file, analysis, bytes: 0, files: 0, total: analysis.uncompressedBytes || 1, step: 'copy', cancel: handle.cancel, log: [], startedAt: Date.now(), lastActivity: Date.now() });
     handle.promise.then(
       (game) => {
         upsertGame(game);
@@ -258,6 +290,10 @@ export function LocalInstaller({ payload }: AppProps) {
           {phase.step === 'copy' ? `${phase.files} / ${phase.analysis.fileCount} ${t.installer.facts.files} · ` : ''}
           {phase.step === 'scan' ? `${phase.bytes} / ${phase.total} ${t.installer.facts.files}` : `${formatBytes(phase.bytes)} / ${formatBytes(phase.total)}`}
         </p>
+        <LiveStatus startedAt={phase.startedAt} lastActivity={phase.lastActivity} bytes={phase.step === 'scan' ? 0 : phase.bytes} />
+        {phase.log.length ? (
+          <LogView lines={phase.log} />
+        ) : null}
         <p className="mt-2 text-sm text-fg-subtle">{t.installer.keepOpen}</p>
         <div className="mt-6 flex justify-end">
           <Button variant="ghost" onClick={phase.cancel}>
@@ -333,5 +369,40 @@ export function LocalInstaller({ payload }: AppProps) {
         <div className="mt-6">{content}</div>
       </div>
     </div>
+  );
+}
+
+/** Tempo und Zeit seit der letzten Aktivität – aktualisiert sich jede Sekunde. */
+function LiveStatus({ startedAt, lastActivity, bytes }: { startedAt: number; lastActivity: number; bytes: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const elapsed = Math.max(1, (now - startedAt) / 1000);
+  const idle = Math.floor((now - lastActivity) / 1000);
+  return (
+    <p className={cn('tabular mt-1 text-sm', idle >= 30 ? 'text-warning' : 'text-fg-subtle')} data-testid="installer-live">
+      {Math.floor(elapsed / 60)}:{String(Math.floor(elapsed % 60)).padStart(2, '0')} min
+      {bytes > 0 ? ` · ${formatBytes(bytes / elapsed)}/s` : ''} · letzte Aktivität vor {idle} s
+      {idle >= 30 ? ' – sehr große Dateien brauchen Zeit; bleibt es mehrere Minuten so, bitte das Protokoll unten melden.' : ''}
+    </p>
+  );
+}
+
+function LogView({ lines }: { lines: string[] }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [lines.length]);
+  return (
+    <pre
+      ref={ref}
+      className="selectable mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md border border-line-soft bg-surface-0 p-3 font-mono text-xs text-fg-muted"
+      data-testid="installer-log"
+      aria-live="polite"
+    >
+      {lines.join('\n')}
+    </pre>
   );
 }

@@ -38,6 +38,7 @@ export type WorkerResponse =
   | { type: 'converted'; id: number; report: ConvertReport }
   | { type: 'runtime-progress'; id: number; bytes: number; total: number }
   | { type: 'stage'; id: number; stage: 'scan'; done: number; total: number }
+  | { type: 'log'; id: number; text: string }
   | { type: 'runtime-ready'; id: number; manifest: RuntimeManifest }
   | { type: 'error'; id: number; code: WorkerErrorCode; detail?: string };
 
@@ -221,6 +222,7 @@ async function convert(msg: Extract<WorkerRequest, { type: 'convert' }>): Promis
     isCancelled: () => cancelled.has(msg.id),
     progress: (bytesWritten, filesWritten) => post({ type: 'progress', id: msg.id, bytesWritten, filesWritten }),
     stage: (stage, done, total) => post({ type: 'stage', id: msg.id, stage, done, total }),
+    log: (text) => post({ type: 'log', id: msg.id, text }),
   });
   post({ type: 'converted', id: msg.id, report });
 }
