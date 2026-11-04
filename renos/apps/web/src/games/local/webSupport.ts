@@ -3,44 +3,31 @@
  * genutzt von der Umwandlung (Installations-Worker) und der Reparatur älterer Installationen.
  */
 
+import hostSource from './python/_renos_host.py?raw';
+import tfdSource from './python/_renpytfd.py?raw';
+import supportRpy from './python/renos_web_support.rpy?raw';
+import { crc32 } from './crc32';
+import { placeholderPng } from './desktop';
+
 /**
  * Stand der Umwandlung. Bei jeder Änderung, die bereits installierte Spiele betrifft, erhöhen und
  * die Reparatur in `upgrade.ts` ergänzen – dann müssen Spiele nicht neu installiert werden.
  *   1  erste Fassung
  *   2  .rpy neben .rpyc weggelassen, Platzhalter in echter Bildgröße, renos_web_support.rpy, Modul-Ersatz
+ *   3  Platzhalter am echten Pfad (os.walk/glob finden nachladbare Dateien), _renos_host.py
+ *      (Datei-Dialoge über RenOS, vom Spiel angelegte Dateien bleiben erhalten)
  */
-export const CONVERTER_VERSION = 2;
+export const CONVERTER_VERSION = 3;
 
 /** Module, die die Web-Laufzeit nicht hat und für die RenOS einen harmlosen Ersatz mitliefert. */
-export const STUB_MODULES = ['js', 'pyodide_js', 'pyscript', 'micropip', '_renpytfd', '_renpysteam', 'steamworks', 'pypresence'] as const;
+export const STUB_MODULES = ['js', 'pyodide_js', 'pyscript', 'micropip', '_renpysteam', 'steamworks', 'pypresence'] as const;
 
-export const WEB_SUPPORT_RPY = `# RenOS: Ergänzungen für Spiele, die aus Windows-/Linux-Builds umgewandelt wurden.
-init -1600 python:
-    def _renos_web_file_fallback(orig):
-        def fallback(fn, *args, **kwargs):
-            try:
-                return orig(fn, *args, **kwargs)
-            except renpy.webloader.DownloadNeeded as e:
-                if e.rtype != "image":
-                    raise
-                import os
-                renpy.webloader.enqueue(e.relpath, "image", fn)
-                return open(os.path.join("_placeholders", e.relpath), "rb")
-        fallback._renos = True
-        return fallback
-
-    if renpy.emscripten:
-        # Import-Hook für Desktop-/Browser-Module, die es in der Web-Laufzeit nicht gibt.
-        try:
-            import _renos_webstub
-        except Exception:
-            pass
-        import renpy.exports as _renos_exports
-        for _renos_name in ("file", "open_file"):
-            _renos_orig = getattr(_renos_exports, _renos_name, None)
-            if _renos_orig is not None and not getattr(_renos_orig, "_renos", False):
-                setattr(_renos_exports, _renos_name, _renos_web_file_fallback(_renos_orig))
-`;
+/** Wird beim Start jedes umgewandelten Spiels geladen (game/renos_web_support.rpy). */
+export const WEB_SUPPORT_RPY: string = supportRpy;
+/** Verbindung zu RenOS: Platzhalter, Datei-Dialoge, Aufbewahren vom Spiel angelegter Dateien. */
+export const RENOS_HOST_PY: string = hostSource;
+/** Ersatz für Ren'Pys Datei-Dialoge (_renpytfd) über RenOS. */
+export const RENPYTFD_PY: string = tfdSource;
 
 export const WEBSTUB = `# RenOS: Ersatz für Module, die es in der Ren'Py-Web-Laufzeit nicht gibt: Browser-Module aus
 # Pyodide/PyScript (js, pyodide, …) und Desktop-Module (Dateidialoge _renpytfd, Steam, Discord),
@@ -134,15 +121,50 @@ sys.modules[__name__] = _renos_webstub.stub_module(__name__)
 `;
 
 
+export interface SupportFile {
+  /** Pfad in der game.zip */
+  name: string;
+  text: string;
+  /** Nur RenOS legt Dateien dieses Namens an – ältere Fassungen dürfen immer ersetzt werden. */
+  renosOnly: boolean;
+}
+
 /**
- * Ersatz-Module (Pfad in der game.zip ohne „game/python-packages/“-Präfix → Inhalt).
- * `own(name)` meldet, ob das Spiel das Modul selbst mitbringt (dann kein Ersatz).
+ * Hilfsdateien in der game.zip (Unterstützungsskript, Python-Module an Wurzel und in
+ * game/python-packages). `own(name)` meldet, ob das Spiel ein Modul selbst mitbringt (dann kein Ersatz).
  */
-export function stubFiles(own: (name: string) => boolean): Array<[string, string]> {
-  const stubs: Array<[string, string]> = [['_renos_webstub.py', WEBSTUB]];
-  for (const name of STUB_MODULES) if (!own(name)) stubs.push([`${name}.py`, WEBSTUB_ENTRY]);
-  if (!own('pyodide')) stubs.push(['pyodide/__init__.py', WEBSTUB_ENTRY]);
-  return stubs;
+export function supportFiles(own: (module: string) => boolean): SupportFile[] {
+  const files: SupportFile[] = [{ name: 'game/renos_web_support.rpy', text: WEB_SUPPORT_RPY, renosOnly: true }];
+  for (const prefix of ['', 'game/python-packages/']) {
+    files.push({ name: `${prefix}_renos_webstub.py`, text: WEBSTUB, renosOnly: true });
+    files.push({ name: `${prefix}_renos_host.py`, text: RENOS_HOST_PY, renosOnly: true });
+    if (!own('_renpytfd')) files.push({ name: `${prefix}_renpytfd.py`, text: RENPYTFD_PY, renosOnly: false });
+    for (const module of STUB_MODULES) if (!own(module)) files.push({ name: `${prefix}${module}.py`, text: WEBSTUB_ENTRY, renosOnly: false });
+    if (!own('pyodide')) files.push({ name: `${prefix}pyodide/__init__.py`, text: WEBSTUB_ENTRY, renosOnly: false });
+  }
+  return files;
+}
+
+/** Platzhalter für nachladbare Dateien: Bilder als PNG in echter Größe, sonst leer (je Größe nur einmal erzeugt). */
+export class PlaceholderCache {
+  private readonly cache = new Map<string, { data: Uint8Array; crc: number }>();
+
+  get(meta: string): { data: Uint8Array; crc: number } {
+    let key = 'empty';
+    let width = 0;
+    let height = 0;
+    if (meta.startsWith('image ')) {
+      [width, height] = meta.slice(6).split(',').map(Number) as [number, number];
+      if (width > 0 && height > 0 && width <= 65535 && height <= 65535) key = `${width}x${height}`;
+    }
+    let entry = this.cache.get(key);
+    if (!entry) {
+      const data = key === 'empty' ? new Uint8Array(0) : placeholderPng(width, height);
+      entry = { data, crc: crc32(data) };
+      this.cache.set(key, entry);
+    }
+    return entry;
+  }
 }
 
 /** Quelltext (.rpy/.rpym), für den die kompilierte Fassung (.rpyc/.rpymc) vorhanden ist. */

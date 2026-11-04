@@ -9,7 +9,10 @@ import { IS_LOCAL } from '@/config';
 import { games as gameBackend } from '@/games/backend';
 import { attachHostSession } from '@/games/gameHost';
 import { BUILTIN_SANDBOX, attachSandboxSession, buildSandboxDocument } from '@/games/sandboxHost';
+import { createFile, uniqueName } from '@/persistence/fs';
 import { openApp } from '@/system/actions';
+import { pickRenosFiles } from '@/system/filePicker';
+import { notify } from '@/system/notifications';
 import type { AppProps } from '@/system/apps';
 import { useSettings } from '@/system/settings';
 import { useWindows } from '@/system/windows';
@@ -138,6 +141,24 @@ export default function PlayerApp({ windowId, payload }: AppProps) {
     return attachSandboxSession(frame, game.id, {
       onBridgeMessage: handleBridge,
       onUnsafe: () => setPhase({ name: 'error', kind: 'unsafe' }),
+      // Datei-Dialog im Spiel (z. B. „Szenario hinzufügen“) → Dateiauswahl von RenOS.
+      // Der Dialog liegt über dem Spiel, auch im Vollbild.
+      onPickFiles: async (options) => {
+        const files = await pickRenosFiles({
+          title: `Datei für „${game.title}“ auswählen`,
+          subtitle: options.title || undefined,
+          patterns: options.patterns,
+          multiple: options.multiple,
+        });
+        window.setTimeout(() => iframeRef.current?.focus(), 50);
+        if (!files) return null;
+        return Promise.all(files.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })));
+      },
+      // „Speichern unter“ im Spiel → Files → Downloads.
+      onExportFile: async (name, data) => {
+        const node = await createFile('downloads', await uniqueName('downloads', name), data);
+        notify({ kind: 'success', title: `„${node.name}“ gespeichert`, message: `${game.title} hat die Datei in Files → Downloads abgelegt.` });
+      },
     });
   }, [builtin, frameReady, handleBridge, game, reloadKey]);
 

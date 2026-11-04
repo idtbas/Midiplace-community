@@ -128,6 +128,58 @@ async function makeLegacyInstall(page: Page): Promise<string> {
   });
 }
 
+/** PNG mit gültigem Kopf in der angegebenen Größe (Inhalt zufällig, wird nicht dargestellt). */
+function pngWithSize(width: number, height: number, bytes: number): Buffer {
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4, 'latin1');
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(height, 12);
+  ihdr.set([8, 2, 0, 0, 0], 16);
+  const body = Buffer.alloc(bytes);
+  for (let i = 0; i < bytes; i += 1) body[i] = (i * 2654435761) >>> 24;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), ihdr, body]);
+}
+
+/** Vom Spiel angelegte Dateien, die RenOS aufbewahrt (IndexedDB „renos“ → overlay). */
+async function overlayPaths(page: Page): Promise<string[]> {
+  return page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const open = indexedDB.open('renos');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          if (!open.result.objectStoreNames.contains('overlay')) return resolve([]);
+          const req = open.result.transaction('overlay').objectStore('overlay').getAll();
+          req.onsuccess = () => resolve((req.result as Array<{ path: string }>).map((r) => r.path).sort());
+          req.onerror = () => reject(req.error);
+        };
+      }),
+  );
+}
+
+/** Dateien in Files mit diesem Namen. */
+async function filesNamed(page: Page, name: string): Promise<Array<{ parentId: string; size: number }>> {
+  return page.evaluate(
+    (wanted) =>
+      new Promise<Array<{ parentId: string; size: number }>>((resolve, reject) => {
+        const open = indexedDB.open('renos');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const req = open.result.transaction('nodes').objectStore('nodes').getAll();
+          req.onsuccess = () =>
+            resolve(
+              (req.result as Array<{ name: string; parentId: string; size: number; trashed: number }>)
+                .filter((n) => n.name === wanted && !n.trashed)
+                .map((n) => ({ parentId: n.parentId, size: n.size })),
+            );
+          req.onerror = () => reject(req.error);
+        };
+      }),
+    name,
+  );
+}
+
 async function installLocally(page: Page, file: string) {
   const win = await openApp(page, 'installer');
   await chooseFile(page, () => win.getByTestId('installer-choose').click(), file);
@@ -444,6 +496,19 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         await expect(win.getByTestId('installer-done')).toBeVisible({ timeout: 240_000 });
         await expect(win.getByTestId('installer-note')).toContainText('nachgeladen');
 
+        // Ein „Szenario“ (wie bei Student Transfer) liegt in RenOS bereit – das Spiel soll es über seinen
+        // Datei-Dialog aus Files öffnen können.
+        const scenarioImage = pngWithSize(300, 200, 120_000);
+        const scenarioZip = writeZip('Testszenario.zip', [
+          { name: 'testszenario/scenario.yml', data: 'title: Test\n' },
+          { name: 'testszenario/bg/park.png', data: scenarioImage },
+        ]);
+        const files = await openApp(page, 'files');
+        await chooseFile(page, () => files.getByRole('button', { name: 'Importieren' }).click(), scenarioZip);
+        await expect(files.getByRole('option', { name: /Testszenario\.zip/ })).toHaveCount(1);
+        await page.keyboard.press('Alt+w');
+        await expect(windowOf(page, 'files')).toHaveCount(0);
+
         await win.getByRole('button', { name: 'Jetzt spielen' }).click();
         await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
         let frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;
@@ -455,6 +520,11 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         expect(
           await exec(frame, "import pyodide; from pyodide.ffi import create_proxy; import pyodide.http as h; result = str(bool(create_proxy(1))) + str(h.pyfetch)"),
         ).toBe('False');
+        // Nachladbare Dateien liegen als Platzhalter am echten Pfad – Spiele, die selbst im Dateisystem suchen
+        // (os.walk, glob, os.path.exists; z. B. Szenario-Bilder in Student Transfer), finden sie.
+        expect(
+          await exec(frame, "import os, _renos_host; result = [os.path.exists(os.path.join(config.gamedir, 'images/bg club.jpg')), 'bg club.jpg' in os.listdir(os.path.join(config.gamedir, 'images')), _renos_host.is_placeholder('images/bg club.jpg')]"),
+        ).toEqual([true, true, true]);
         // Bilder aus images.rpa und lose Musik sind bekannt und werden aus dem iPad-Speicher nachgeladen – byte-genau.
         expect(await exec(frame, "result = renpy.loadable('images/bg club.jpg') and renpy.loadable('illurock.opus')")).toBe(true);
         await exec(frame, "renpy.webloader.enqueue('images/bg club.jpg', 'image', 'images/bg club.jpg'); renpy.webloader.enqueue('illurock.opus', 'music', None); result = True");
@@ -463,6 +533,33 @@ test.describe('Lokaler Modus (ohne Server)', () => {
             timeout: 30_000,
           })
           .toEqual([984435, 234646]);
+        // Nach dem Nachladen liegt das echte Bild am Pfad; Ren'Pys Aufräumen legt wieder den Platzhalter hin.
+        expect(await exec(frame, "import _renos_host; result = _renos_host.is_placeholder('images/bg club.jpg')")).toBe(false);
+        expect(
+          await exec(frame, "import os, _renos_host; p = os.path.join(config.gamedir, 'images/bg club.jpg'); renpy.webloader.os.unlink(p); result = [os.path.exists(p), _renos_host.is_placeholder('images/bg club.jpg')]"),
+        ).toEqual([true, true]);
+
+        // Datei-Dialog im Spiel (_renpytfd, wie „Szenario hinzufügen“) → Dateiauswahl von RenOS.
+        // Aufruf aus Ren'Pys Hauptschleife – wie bei einem Knopf im Spiel (Ren'Py 7 kann nur dort warten).
+        await exec(
+          frame,
+          "store._renos_picked = None\ndef _renos_pick():\n    import _renpytfd\n    store._renos_picked = _renpytfd.openFileDialog('Choose Scenario Package', '', ['*.zip'], None) or ''\nrenpy.invoke_in_main_thread(_renos_pick)\nresult = True",
+        );
+        const picker = page.getByTestId('file-picker');
+        await expect(picker).toBeVisible({ timeout: 15_000 });
+        await expect(picker).toContainText('Choose Scenario Package');
+        await picker.getByRole('button', { name: 'Persönlicher Ordner' }).click();
+        await picker.locator('[data-testid="file-picker-item"][data-name="Testszenario.zip"]').click();
+        await picker.getByTestId('file-picker-open').click();
+        await expect.poll(() => exec(frame, 'result = store._renos_picked'), { timeout: 15_000 }).toMatch(/^\/tmp\/renos-picked\/\d+\/Testszenario\.zip$/);
+        // Das Spiel entpackt es in seinen Spielordner (wie Student Transfer) – RenOS bewahrt die Dateien auf.
+        expect(
+          await exec(frame, "import zipfile, os, _renos_host; z = zipfile.ZipFile(store._renos_picked); z.extractall(os.path.join(config.gamedir, 'scenario')); _renos_host.sync(); result = sorted(z.namelist())"),
+        ).toEqual(['testszenario/bg/park.png', 'testszenario/scenario.yml']);
+        await expect.poll(() => overlayPaths(page), { timeout: 20_000 }).toEqual(['game/scenario/testszenario/bg/park.png', 'game/scenario/testszenario/scenario.yml']);
+        // „Speichern unter“ im Spiel landet in Files → Downloads.
+        await exec(frame, "import _renpytfd; p = _renpytfd.saveFileDialog('Export', 'mein-szenario.zip', ['*.zip'], None); f = open(p, 'wb'); f.write(b'PK' * 500); f.close(); result = p");
+        await expect.poll(() => filesNamed(page, 'mein-szenario.zip'), { timeout: 30_000 }).toEqual([{ parentId: 'downloads', size: 1000 }]);
 
         // „Start“ im Hauptmenü: Das Skript aus scripts.rpa läuft, Musik und Hintergrund werden nachgeladen.
         await page.getByTestId('game-frame').click({ position: { x: 68, y: 336 } });
@@ -497,12 +594,20 @@ test.describe('Lokaler Modus (ohne Server)', () => {
         await expect(page.getByTestId('player')).toHaveAttribute('data-phase', 'running', { timeout: 180_000 });
         frame = (await (await page.getByTestId('game-frame').elementHandle())!.contentFrame())!;
         expect(await exec(frame, "result = renpy.can_load('1-1')")).toBe(true);
+        // Das im Spiel installierte Szenario ist nach dem Neustart wieder da – das Bild als Platzhalter, nachladbar.
+        expect(
+          await exec(frame, "import os, _renos_host; g = config.gamedir; result = [open(os.path.join(g, 'scenario/testszenario/scenario.yml')).read(), os.path.exists(os.path.join(g, 'scenario/testszenario/bg/park.png')), _renos_host.is_placeholder('scenario/testszenario/bg/park.png'), bool(renpy.loadable('scenario/testszenario/bg/park.png'))]"),
+        ).toEqual(['title: Test\n', true, true, true]);
+        await exec(frame, "renpy.webloader.enqueue('scenario/testszenario/bg/park.png', 'image', 'scenario/testszenario/bg/park.png'); result = True");
+        await expect
+          .poll(() => exec(frame, "import os, _renos_host; result = [os.path.getsize(os.path.join(config.gamedir, 'scenario/testszenario/bg/park.png')), _renos_host.is_placeholder('scenario/testszenario/bg/park.png')]"), { timeout: 30_000 })
+          .toEqual([scenarioImage.byteLength, false]);
         // Ältere Installation wurde beim Start repariert: Die .rpy fehlt in der gelieferten game.zip, das
         // Skript lief ohne „Parsing the script failed“, das Unterstützungsskript ist dabei.
         expect(await exec(frame, `result = renpy.loadable(${JSON.stringify(legacySource)})`)).toBe(false);
         expect(await exec(frame, "result = renpy.has_label('start') and not renpy.has_label('renos_legacy_check')")).toBe(true);
         expect(await exec(frame, "result = renpy.loadable('renos_web_support.rpy')")).toBe(true);
-        expect(logs.some((line) => /game\.zip von .* aktualisiert: 1 \.rpy ausgelassen/.test(line))).toBe(true);
+        expect(logs.some((line) => /game\.zip von .*: 1 \.rpy ausgelassen/.test(line))).toBe(true);
         await context.setOffline(false);
       });
     }

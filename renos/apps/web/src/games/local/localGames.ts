@@ -9,7 +9,8 @@ import type { WorkerRequest, WorkerResponse } from './installWorker';
 import { forgetGameDirectory, gameDirectory, listGameDirectories, readGameFile, removeGameDirectory } from './opfs';
 import { availableRuntimes, readInstalledRuntime, readRuntimeFile, type RuntimeSummary } from './runtimes';
 import { deleteSaves } from './saves';
-import { upgradeGameZip } from './upgrade';
+import { composeGameZip, upgradeChanged } from './compose';
+import { deleteOverlay, listOverlay, onOverlayChange, readOverlayFile } from './overlay';
 import { CONVERTER_VERSION } from './webSupport';
 
 /**
@@ -284,7 +285,8 @@ export async function deleteLocalGame(id: string): Promise<void> {
   await deleteSaves(id);
   forgetGameDirectory(id);
   manifests.delete(id);
-  upgradedZips.delete(id);
+  composedZips.delete(id);
+  await deleteOverlay(id).catch(() => undefined);
   const cached = coverUrls.get(id);
   if (cached) URL.revokeObjectURL(cached.url);
   coverUrls.delete(id);
@@ -369,6 +371,9 @@ export async function readInstalledGameFile(gameId: string, path: string): Promi
   const runtime = await readInstalledRuntime(record.conversion.runtime);
   if (runtime?.webFiles.includes(path)) return readRuntimeFile(runtime.id, path);
   if (path.startsWith('game/')) {
+    // Vom Spiel angelegte Dateien (z. B. Bilder installierter Szenarien) haben Vorrang.
+    const own = await readOverlayFile(gameId, path);
+    if (own) return own;
     const web = await loadWebManifest(gameId);
     const member = web?.manifest.members[path.slice('game/'.length)];
     if (web && member) {
@@ -391,41 +396,45 @@ export async function readInstalledGameFile(gameId: string, path: string): Promi
     }
   }
   if (path === 'renos-web.json' || path.startsWith('archives/')) return null;
-  if (path === 'game.zip' && (record.conversion.converter ?? 1) < CONVERTER_VERSION) {
-    const upgraded = await upgradedGameZip(gameId);
-    if (upgraded) return upgraded;
+  if (path === 'game.zip') {
+    const composed = await composedGameZip(gameId);
+    if (composed) return composed;
   }
   return readGameFile(gameId, path);
 }
 
-const upgradedZips = new Map<string, Promise<Blob | null>>();
+const composedZips = new Map<string, Promise<Blob | null>>();
+// Vom Spiel angelegte Dateien geändert → beim nächsten Start neu zusammensetzen.
+onOverlayChange((gameId) => composedZips.delete(gameId));
 
 /**
- * game.zip einer älteren Umwandlung mit den Korrekturen der aktuellen Fassung (ohne Neuinstallation).
- * Ist nichts zu tun, wird das Spiel als aktuell markiert; bei Fehlern bleibt die ursprüngliche Datei.
+ * game.zip eines umgewandelten Spiels für den Start (compose.ts): Reparatur älterer Umwandlungen ohne
+ * Neuinstallation, vom Spiel angelegte Dateien, Listen für den Abgleich. Bei Fehlern die ursprüngliche Datei.
  */
-function upgradedGameZip(gameId: string): Promise<Blob | null> {
-  let cached = upgradedZips.get(gameId);
+function composedGameZip(gameId: string): Promise<Blob | null> {
+  let cached = composedZips.get(gameId);
   if (!cached) {
     cached = (async () => {
       const zip = await readGameFile(gameId, 'game.zip');
-      if (!zip) return null;
+      const record = await db.games.get(gameId);
+      if (!zip || !record?.conversion) return null;
+      const upgrade = (record.conversion.converter ?? 1) < CONVERTER_VERSION;
       try {
-        const result = await upgradeGameZip(zip);
-        if (!result) {
-          const record = await db.games.get(gameId);
-          if (record?.conversion) await db.games.update(gameId, { conversion: { ...record.conversion, converter: CONVERTER_VERSION } });
-          return null;
+        const overlay = await listOverlay(gameId);
+        const { blob, report } = await composeGameZip(zip, { upgrade, overlay });
+        if (upgrade && !upgradeChanged(report)) await db.games.update(gameId, { conversion: { ...record.conversion, converter: CONVERTER_VERSION } });
+        if (upgradeChanged(report) || report.overlayFiles) {
+          console.log(
+            `[RenOS] game.zip von ${gameId}: ${report.droppedSources} .rpy ausgelassen, ${report.placeholders} Platzhalter, ${report.supportFiles} Hilfsdateien, ${report.overlayFiles} aufbewahrte Dateien`,
+          );
         }
-        const { droppedSources, resizedPlaceholders, supportFiles } = result.report;
-        console.log(`[RenOS] game.zip von ${gameId} aktualisiert: ${droppedSources} .rpy ausgelassen, ${resizedPlaceholders} Platzhalter, ${supportFiles} Hilfsdateien`);
-        return result.blob;
+        return blob;
       } catch (error) {
-        console.warn('[RenOS] game.zip konnte nicht aktualisiert werden', error);
+        console.warn('[RenOS] game.zip konnte nicht zusammengesetzt werden', error);
         return null;
       }
     })();
-    upgradedZips.set(gameId, cached);
+    composedZips.set(gameId, cached);
   }
   return cached;
 }

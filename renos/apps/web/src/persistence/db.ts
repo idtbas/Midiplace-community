@@ -77,6 +77,23 @@ export interface SaveRecord {
   size: number;
 }
 
+/**
+ * Datei, die ein umgewandeltes Spiel selbst im Spielordner angelegt hat (z. B. ein installiertes
+ * Szenario). RenOS bewahrt sie auf und gibt sie dem Spiel beim nächsten Start wieder mit.
+ */
+export interface OverlayRecord {
+  gameId: string;
+  /** Pfad in der game.zip, z. B. „game/scenario/x/scenario.yml“ */
+  path: string;
+  blob: Blob;
+  size: number;
+  /** local: in der game.zip; remote: bei Bedarf nachgeladen (Platzhalter in der game.zip) */
+  kind: 'local' | 'remote';
+  /** Eintrag für renpyweb_remote_files.txt (nur remote), z. B. „image 1280,720“ */
+  meta: string;
+  updatedAt: number;
+}
+
 export interface KvEntry {
   key: string;
   value: unknown;
@@ -90,6 +107,7 @@ export class RenosDB extends Dexie {
   games!: EntityTable<LocalGame, 'id'>;
   covers!: EntityTable<LocalCover, 'id'>;
   saves!: Table<SaveRecord, [string, string, string, string | number]>;
+  overlay!: Table<OverlayRecord, [string, string]>;
 
   constructor(name = 'renos') {
     super(name);
@@ -105,6 +123,9 @@ export class RenosDB extends Dexie {
     });
     this.version(3).stores({
       saves: '[gameId+db+store+key], gameId',
+    });
+    this.version(4).stores({
+      overlay: '[gameId+path], gameId',
     });
   }
 }

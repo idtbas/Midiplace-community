@@ -15,13 +15,13 @@
  */
 import { Inflate } from 'fflate';
 import { crc32 } from './crc32';
-import { CLASSIFY_LIMITS, Classifier, PLACEHOLDER_PNG, escapeHtml, mediaKind, placeholderPng, remoteFilesText, skipGameFile } from './desktop';
+import { CLASSIFY_LIMITS, Classifier, escapeHtml, mediaKind, remoteFilesText, skipGameFile } from './desktop';
 import { IMAGE_HEADER_BYTES, imageSize } from './imageSize';
 import { gameDirectory } from './opfs';
 import { directoryMaker, openSink, writeChunks } from './opfsWrite';
 import { RpaError, memberBlob, readRpaIndex, type RpaMember } from './rpa';
 import { readInstalledRuntime, runtimeDirectory } from './runtimes';
-import { WEB_SUPPORT_RPY, hasCompiledTwin, stubFiles } from './webSupport';
+import { PlaceholderCache, hasCompiledTwin, supportFiles } from './webSupport';
 import { ZipWriter } from './zipWriter';
 import { ZipFormatError, entryDataStart, readCentralDirectory, readEntryChunks, readRange, type ZipEntry } from './zipReader';
 
@@ -372,35 +372,27 @@ export async function convertDesktopBuild(params: ConvertParams): Promise<Conver
     for (const dir of [...remoteDirs].sort()) {
       if (!writer.has(dir)) await writer.addRaw({ name: dir, method: 0, crc: 0, compressedSize: 0, uncompressedSize: 0, data: [] });
     }
-    // Platzhalter in der echten Bildgröße (transparent, wenige hundert Bytes): Spiele, die die Größe
-    // eines Bildes selbst aus der Datei lesen, bekommen so schon vor dem Nachladen richtige Maße.
-    const placeholders = new Map<string, { data: Uint8Array; crc: number }>();
+    // Platzhalter am echten Pfad jeder nachladbaren Datei: Spiele, die ihre Dateien selbst im Dateisystem
+    // suchen (os.walk, glob, os.path.exists – z. B. Szenarien in Student Transfer), finden sie so schon vor
+    // dem Nachladen. Bilder: transparentes PNG in der echten Größe; Audio/Video: leere Datei. Ren'Py lädt
+    // trotzdem das echte Bild (renos_web_support.rpy: „nachladen vor Dateisystem“, solange ein
+    // Platzhalter am Pfad liegt).
+    const placeholders = new PlaceholderCache();
     for (const [rel, meta] of remote) {
-      if (!meta.startsWith('image ')) continue;
-      const [w, h] = meta.slice(6).split(',').map(Number);
-      const key = `${w}x${h}`;
-      let ph = placeholders.get(key);
-      if (!ph) {
-        const data = w && h ? placeholderPng(w, h) : PLACEHOLDER_PNG;
-        ph = { data, crc: crc32(data) };
-        placeholders.set(key, ph);
-      }
-      await writer.addRaw({ name: `_placeholders/${rel}`, method: 0, crc: ph.crc, compressedSize: ph.data.byteLength, uncompressedSize: ph.data.byteLength, data: [ph.data] });
-    }
-    // renpy.file()/renpy.open_file() des Spiels: bei noch nicht geladenen Bildern den Platzhalter liefern
-    // (und das Bild nachladen), statt mit DownloadNeeded abzubrechen.
-    if (!writer.has('game/renos_web_support.rpy') && !table.has('renos_web_support.rpy')) {
-      await writer.addBytes('game/renos_web_support.rpy', new TextEncoder().encode(WEB_SUPPORT_RPY));
+      const name = `game/${rel}`;
+      if (writer.has(name)) continue;
+      const ph = placeholders.get(meta);
+      await writer.addRaw({ name, method: 0, crc: ph.crc, compressedSize: ph.data.byteLength, uncompressedSize: ph.data.byteLength, data: [ph.data] });
     }
     await writer.addBytes('game/renpyweb_remote_files.txt', new TextEncoder().encode(remoteFilesText(remote)));
-    // Ersatz für Browser-Module aus Pyodide/PyScript (js, pyodide, …), falls das Spiel sie importiert und
-    // nicht selbst mitbringt (sonst „No module named 'js'“ / „'pyodide'“). Untermodule liefert ein Import-Hook.
+    // Hilfsdateien von RenOS: Unterstützungsskript (Platzhalter, Datei-Dialoge, vom Spiel angelegte Dateien)
+    // und Ersatz für Module, die es in der Web-Laufzeit nicht gibt (js, pyodide, _renpytfd …), sofern das
+    // Spiel sie nicht selbst mitbringt.
     const own = (name: string) => [...table.keys()].some((p) => new RegExp(`(^|/)${name}(\\.py|/__init__\\.py)$`, 'i').test(p));
     const enc = new TextEncoder();
-    for (const [name, text] of stubFiles(own)) {
-      for (const target of [name, `game/python-packages/${name}`]) {
-        if (!writer.has(target)) await writer.addBytes(target, enc.encode(text));
-      }
+    for (const file of supportFiles(own)) {
+      if (file.name === 'game/renos_web_support.rpy' && table.has('renos_web_support.rpy')) continue;
+      if (!writer.has(file.name)) await writer.addBytes(file.name, enc.encode(file.text));
     }
     // Ren'Py 7 (renpyweb) liest das Startbild aus der game.zip.
     if (presplash && runtime.generation === 'renpyweb') await writer.addBytes(`web-presplash.${presplashExt}`, new Uint8Array(await presplash.arrayBuffer()));

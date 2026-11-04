@@ -1,6 +1,7 @@
 import runtimeSource from './sandbox/runtime.js?raw';
 import { applySaveChanges, loadSaves } from './local/saves';
 import { readInstalledGameFile } from './local/localGames';
+import { removeOverlayFiles, saveOverlayFile } from './local/overlay';
 
 /**
  * Eingebauter Spiele-Host (lokaler Modus).
@@ -67,9 +68,37 @@ export function buildSandboxDocument(parentOrigin: string): string {
   ].join('');
 }
 
+export interface PickOptions {
+  title: string;
+  patterns: string[];
+  multiple: boolean;
+}
+
+export interface PickedFile {
+  name: string;
+  data: ArrayBuffer;
+}
+
 export interface SandboxSessionHandlers {
   onBridgeMessage: (data: unknown) => void;
   onUnsafe: () => void;
+  /** Dateiauswahl von RenOS für das Spiel (null = abgebrochen). */
+  onPickFiles?: (options: PickOptions) => Promise<PickedFile[] | null>;
+  /** „Speichern unter“ im Spiel: Datei in RenOS ablegen. */
+  onExportFile?: (name: string, data: Blob) => Promise<void>;
+}
+
+/** Höchstens so viele Exporte pro Spielsitzung (Schutz vor einem Spiel, das Files zuschüttet). */
+const MAX_EXPORTS = 50;
+const MAX_EXPORT_BYTES = 512 * 1024 * 1024;
+
+function pickOptions(value: unknown): PickOptions {
+  const o = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  return {
+    title: typeof o.title === 'string' ? o.title.slice(0, 200) : '',
+    patterns: Array.isArray(o.patterns) ? o.patterns.filter((p): p is string => typeof p === 'string').map((p) => p.slice(0, 40)).slice(0, 20) : [],
+    multiple: o.multiple === true,
+  };
 }
 
 /**
@@ -82,13 +111,28 @@ export function attachSandboxSession(iframe: HTMLIFrameElement, gameId: string, 
   let closed = false;
   // Spielstand-Änderungen nacheinander anwenden, damit ihre Reihenfolge erhalten bleibt.
   let saveQueue: Promise<unknown> = Promise.resolve();
+  // Vom Spiel angelegte Dateien ebenfalls nacheinander (Speicherplatz, Reihenfolge).
+  let overlayQueue: Promise<unknown> = Promise.resolve();
+  let picking = false;
+  let exports = 0;
 
-  const reply = (msg: Record<string, unknown>) => {
-    if (!closed) channel?.port1.postMessage(msg);
+  const reply = (msg: Record<string, unknown>, transfer: Transferable[] = []) => {
+    if (!closed) channel?.port1.postMessage(msg, transfer);
   };
 
   const onPortMessage = (event: MessageEvent) => {
-    const msg = event.data as { type?: unknown; reqId?: unknown; path?: unknown; payload?: unknown; put?: unknown; del?: unknown } | null;
+    const msg = event.data as {
+      type?: unknown;
+      reqId?: unknown;
+      path?: unknown;
+      payload?: unknown;
+      put?: unknown;
+      del?: unknown;
+      options?: unknown;
+      data?: unknown;
+      paths?: unknown;
+      name?: unknown;
+    } | null;
     if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') return;
     const reqId = typeof msg.reqId === 'number' && Number.isSafeInteger(msg.reqId) ? msg.reqId : null;
     switch (msg.type) {
@@ -111,6 +155,56 @@ export function attachSandboxSession(iframe: HTMLIFrameElement, gameId: string, 
       case 'bridge':
         handlers.onBridgeMessage(msg.payload);
         return;
+      case 'pick': {
+        if (reqId === null) return;
+        if (!handlers.onPickFiles || picking) {
+          reply({ type: 'pick', reqId, ok: false });
+          return;
+        }
+        picking = true;
+        void handlers
+          .onPickFiles(pickOptions(msg.options))
+          .then(
+            (files) => (files ? reply({ type: 'pick', reqId, ok: true, files }, files.map((f) => f.data)) : reply({ type: 'pick', reqId, ok: false })),
+            () => reply({ type: 'pick', reqId, ok: false }),
+          )
+          .finally(() => {
+            picking = false;
+          });
+        return;
+      }
+      case 'persist':
+        if (reqId === null) return;
+        overlayQueue = overlayQueue.then(() =>
+          saveOverlayFile(gameId, msg.path, msg.data).then(
+            (result) => reply({ type: 'persist', reqId, ...result }),
+            () => reply({ type: 'persist', reqId, ok: false, reason: 'Die Datei konnte nicht gespeichert werden.' }),
+          ),
+        );
+        return;
+      case 'forget':
+        if (reqId === null) return;
+        overlayQueue = overlayQueue.then(() =>
+          removeOverlayFiles(gameId, msg.paths).then(
+            (count) => reply({ type: 'forget', reqId, ok: true, count }),
+            () => reply({ type: 'forget', reqId, ok: false }),
+          ),
+        );
+        return;
+      case 'export': {
+        if (reqId === null) return;
+        const name = typeof msg.name === 'string' ? [...msg.name].map((c) => (c === '/' || c === '\\' || c.charCodeAt(0) < 32 ? '_' : c)).join('').slice(0, 200) : '';
+        if (!handlers.onExportFile || !(msg.data instanceof ArrayBuffer) || !name || msg.data.byteLength > MAX_EXPORT_BYTES || exports >= MAX_EXPORTS) {
+          reply({ type: 'export', reqId, ok: false });
+          return;
+        }
+        exports += 1;
+        void handlers.onExportFile(name, new Blob([msg.data])).then(
+          () => reply({ type: 'export', reqId, ok: true }),
+          () => reply({ type: 'export', reqId, ok: false }),
+        );
+        return;
+      }
       default:
         return;
     }

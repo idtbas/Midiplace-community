@@ -64,7 +64,7 @@
     if (port) port.postMessage({ type: 'bridge', payload: payload });
   }
 
-  function request(msg) {
+  function request(msg, transfer) {
     return new Promise(function (resolve) {
       if (!port) {
         resolve(null);
@@ -73,9 +73,47 @@
       var id = nextRequest++;
       msg.reqId = id;
       waiting.set(id, resolve);
-      port.postMessage(msg);
+      port.postMessage(msg, transfer || []);
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Dienste von RenOS für das Spiel (genutzt von _renos_host.py in umgewandelten Spielen)
+  // ---------------------------------------------------------------------------
+
+  /*
+   * Dateiauswahl: RenOS zeigt seinen Dateimanager; nur was die Person dort wählt, kommt ins Spiel.
+   * Aufbewahren/Entfernen: Dateien, die das Spiel in seinem Spielordner anlegt (z. B. Szenarien) –
+   * RenOS prüft Pfade und Größen und speichert sie nur für dieses Spiel.
+   * Export: „Speichern unter“ im Spiel legt die Datei in RenOS ab (Files → Downloads).
+   */
+  window.RenOSHost = Object.freeze({
+    pickFiles: function (options) {
+      var opts = options && typeof options === 'object' ? options : {};
+      return request({
+        type: 'pick',
+        options: {
+          title: String(opts.title || '').slice(0, 200),
+          patterns: Array.isArray(opts.patterns) ? opts.patterns.slice(0, 20).map(function (p) { return String(p).slice(0, 40); }) : [],
+          multiple: Boolean(opts.multiple)
+        }
+      }).then(function (msg) {
+        return msg && msg.ok && Array.isArray(msg.files) ? msg.files : null;
+      });
+    },
+    saveGameFile: function (path, data) {
+      return request({ type: 'persist', path: String(path), data: data }, data instanceof ArrayBuffer ? [data] : []).then(function (msg) {
+        if (!msg || !msg.ok) throw new Error((msg && msg.reason) || 'Nicht gespeichert.');
+        return true;
+      });
+    },
+    removeGameFiles: function (paths) {
+      return request({ type: 'forget', paths: Array.isArray(paths) ? paths.map(String) : [] });
+    },
+    exportFile: function (name, data) {
+      return request({ type: 'export', name: String(name).slice(0, 200), data: data }, data instanceof ArrayBuffer ? [data] : []);
+    }
+  });
 
   function onPortMessage(event) {
     var msg = event.data;
